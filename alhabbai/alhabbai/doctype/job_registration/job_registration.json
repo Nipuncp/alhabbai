@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-03-05 07:39:54.632410",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user_details_section",
+  "name1",
+  "associate",
+  "mode_of_appointment",
+  "column_break_arpd",
+  "email",
+  "referral_person",
+  "column_break_ohog",
+  "contact_number",
+  "remarks",
+  "select_package_section",
+  "package",
+  "documents_upload_section",
+  "table_tujy"
+ ],
+ "fields": [
+  {
+   "fieldname": "user_details_section",
+   "fieldtype": "Section Break",
+   "label": "User Details"
+  },
+  {
+   "fieldname": "name1",
+   "fieldtype": "Data",
+   "label": "Name"
+  },
+  {
+   "fieldname": "associate",
+   "fieldtype": "Select",
+   "label": "Associate",
+   "options": "Corporate\nReferral"
+  },
+  {
+   "fieldname": "mode_of_appointment",
+   "fieldtype": "Select",
+   "label": "Mode of Appointment",
+   "options": "Online\nOffline"
+  },
+  {
+   "fieldname": "column_break_arpd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email"
+  },
+  {
+   "fieldname": "referral_person",
+   "fieldtype": "Data",
+   "label": "Referral Person"
+  },
+  {
+   "fieldname": "column_break_ohog",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_number",
+   "fieldtype": "Data",
+   "label": "Contact Number"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "select_package_section",
+   "fieldtype": "Section Break",
+   "label": "Select Package"
+  },
+  {
+   "fieldname": "package",
+   "fieldtype": "Link",
+   "label": "Package ",
+   "options": "Item"
+  },
+  {
+   "fieldname": "documents_upload_section",
+   "fieldtype": "Section Break",
+   "label": "Documents Upload"
+  },
+  {
+   "fieldname": "table_tujy",
+   "fieldtype": "Table",
+   "options": "Documents"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-03-05 07:55:14.011285",
+ "modified_by": "Administrator",
+ "module": "Alhabbai",
+ "name": "Job Registration",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
