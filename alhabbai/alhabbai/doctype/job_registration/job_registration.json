@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "user_details_section",
-  "name1",
+  "customer",
   "associate",
   "mode_of_appointment",
   "column_break_arpd",
@@ -25,11 +25,6 @@
    "fieldname": "user_details_section",
    "fieldtype": "Section Break",
    "label": "User Details"
-  },
-  {
-   "fieldname": "name1",
-   "fieldtype": "Data",
-   "label": "Name"
   },
   {
    "fieldname": "associate",
@@ -78,9 +73,9 @@
   },
   {
    "fieldname": "package",
-   "fieldtype": "Link",
+   "fieldtype": "Table",
    "label": "Package ",
-   "options": "Item"
+   "options": "Sales Order Item"
   },
   {
    "fieldname": "documents_upload_section",
@@ -91,11 +86,17 @@
    "fieldname": "table_tujy",
    "fieldtype": "Table",
    "options": "Documents"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Name",
+   "options": "Customer"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-03-05 07:55:14.011285",
+ "modified": "2025-03-05 09:26:59.911665",
  "modified_by": "Administrator",
  "module": "Alhabbai",
  "name": "Job Registration",
