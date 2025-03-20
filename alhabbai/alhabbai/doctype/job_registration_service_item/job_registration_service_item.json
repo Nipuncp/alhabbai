@@ -1,0 +1,38 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-03-14 05:31:30.542102",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "service_package_item",
+  "amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_package_item",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Service Package Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-03-17 03:51:06.647796",
+ "modified_by": "Administrator",
+ "module": "Alhabbai",
+ "name": "Job Registration Service Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

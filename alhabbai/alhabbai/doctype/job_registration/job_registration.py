@@ -1,141 +1,117 @@
 # Copyright (c) 2025, Nipun and contributors
 # For license information, please see license.txt
 
-# import frappe
-from frappe.model.document import Document
 import frappe
-from frappe.utils import add_days, nowdate
+from frappe.model.document import Document
 
-@frappe.whitelist()
-def create_sales_order_from_job(job_registration_name):
-    """
-    Creates a new Sales Order from the given Job Registration record,
-    pulling line items from the 'package' child table (Sales Order Item).
-    Returns the new Sales Order name.
-    """
-    # 1. Get the Job Registration doc
-    job_reg = frappe.get_doc("Job Registration", job_registration_name)
-
-    # 2. Create a new Sales Order
-    so = frappe.new_doc("Sales Order")
-
-    # 3. Set mandatory fields
-    #    We now have a real Customer link in Job Registration (fieldname = 'customer')
-    if not job_reg.customer:
-        frappe.throw("Please set a Customer in the Job Registration before creating a Sales Order.")
-
-    so.customer = job_reg.customer
-    so.job_registration = job_reg.name  # Link back to the Job Registration
-
-    # 4. Transfer child table rows from `job_reg.package` -> so.items
-    #    Each row in `job_reg.package` references Sales Order Item structure, so fields like item_code, qty, rate, etc.
-    if job_reg.package:
-        for row in job_reg.package:
-            so.append("items", {
-                "item_code":       row.item_code,
-                "item_name":       row.item_name,
-                "description":     row.description,
-                "qty":             row.qty or 1,
-                "uom":             row.uom or "Nos",
-                "conversion_factor": row.conversion_factor or 1,
-                "rate":            row.rate or 0,
-                "amount":          (row.qty or 1) * (row.rate or 0),
-            })
-
-    # 5. Set other mandatory or important fields
-    #    For example, Sales Order requires a delivery_date.
-    #    You can set it to today + 7 days, or any relevant date for your business flow.
-    so.delivery_date = add_days(nowdate(), 7)
-
-    # 6. Insert (save) without submitting automatically
-    so.insert(ignore_permissions=True)
-    # If you want to auto-submit, uncomment the next line:
-    # so.submit()
-
-    return so.name
-
-from frappe.utils import nowdate
-
-from frappe.utils import nowdate, generate_hash
-
-@frappe.whitelist()
-def create_government_payment(job_registration_name):
-    """
-    1) Creates a Purchase Invoice for government fees (in INR).
-    2) Creates a Payment Entry in AED (multi-currency), paying from the Prepaid Government Card.
-    3) Returns the names of the PI and PE.
-    """
-    # 1. Get the Job Registration doc
-    job_reg = frappe.get_doc("Job Registration", job_registration_name)
-
-    # 2. Create a new Purchase Invoice (assumed in INR)
-    pi = frappe.new_doc("Purchase Invoice")
-    pi.supplier = "Government Department"
-    pi.posting_date = nowdate()
-
-    # Link back to Job Registration (assuming "job_registration" is a custom field on PI)
-    pi.job_registration = job_reg.name
-
-    # Add items. Adjust to your scenario or pull from Job Registration child table(s).
-    pi.append("items", {
-        "item_code": "Visa Fee",
-        "qty": 1,
-        "rate": 100.0,  # example fee amount in INR
-    })
-
-    pi.insert(ignore_permissions=True)
-    pi.submit()
-
-    # ------------------------------------------------------------------
-    # 3. Create a multi-currency Payment Entry (AED -> INR)
-    # ------------------------------------------------------------------
-    pe = frappe.new_doc("Payment Entry")
-    pe.payment_type = "Pay"
-    pe.posting_date = nowdate()
-    pe.party_type = "Supplier"
-    pe.party = pi.supplier
-    pe.company = pi.company
-    pe.mode_of_payment = "Prepaid Government Card"
-    pe.paid_from = "1234 - Government Prepaid Card 01 - A"  # account in AED (ensure it's set to Bank/Cash type)
-    pe.paid_to = pi.credit_to                               # typically a Payable account in INR
-    pe.job_registration = job_reg.name  # custom link field if present on Payment Entry
-
-    # Reference the invoice (in INR)
-    pe.append("references", {
-        "reference_doctype": "Purchase Invoice",
-        "reference_name": pi.name,
-        "due_date": pi.due_date,
-        "total_amount": pi.grand_total,  # in INR
-        "outstanding_amount": pi.outstanding_amount,
-        "allocated_amount": pi.outstanding_amount
-    })
-
-    # Example exchange rate: 1 AED = 22.5 INR
-    exchange_rate = 22.5
-    inr_outstanding = pi.outstanding_amount or 0
-
-    # Convert INR outstanding to AED
-    aed_to_pay = inr_outstanding / exchange_rate
-
-    # Payment Entry multi-currency fields
-    pe.paid_amount = aed_to_pay
-    pe.source_exchange_rate = exchange_rate
-
-    # Invoice is in INR (company currency), so received_amount = inr_outstanding
-    pe.received_amount = inr_outstanding
-    pe.target_exchange_rate = 1.0
-
-    pe.allocate_payment_amount = 1
-    pe.reference_no = f"AutoRef-{generate_hash(length=5)}"
-    pe.reference_date = nowdate()
-
-    pe.insert(ignore_permissions=True)
-    pe.submit()
-
-    return {
-        "purchase_invoice": pi.name,
-        "payment_entry": pe.name
-    }
 
 class JobRegistration(Document):
 	pass
+
+
+
+@frappe.whitelist()
+def create_government_purchase_invoice(job_registration, amount=100):
+    print("DEBUG: create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
+    
+    # Ensure amount is provided
+    if amount is None:
+        frappe.throw("Amount must be provided to create a Purchase Invoice for Government Fees.")
+    
+    try:
+        # Create Purchase Invoice (Draft for now)
+        pi = frappe.get_doc({
+            "doctype": "Purchase Invoice",
+            "supplier": "Government",
+            "posting_date": frappe.utils.today(),
+            "due_date": frappe.utils.today(),
+            "items": [{
+                "item_code": "Government Fees",
+                "qty": 1,
+                "rate": amount,
+                "amount": amount,
+                "expense_account": "Government Charges - AH"  # Make sure this account exists
+            }],
+            "total": amount,
+            "grand_total": amount,
+            "outstanding_amount": 0,
+            "is_paid": 1,  # Mark as paid
+            # Add the cash_bank_account field to resolve the error
+            "cash_bank_account": "Prepaid Card 1 - AH",  # Ensure this account exists in your Chart of Accounts
+            "payments": [{
+                "mode_of_payment": "Government Prepaid Card",
+                "account": "Prepaid Card 1 - AH",  # Ensure this account exists in your Chart of Accounts
+                "amount": amount
+            }]
+        })
+        
+        print("DEBUG: Inserting Purchase Invoice draft...")
+        pi.insert(ignore_permissions=True)
+        print("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
+        
+        # Uncomment the next line to auto-submit when you are ready:
+        # pi.submit()  
+        # print("DEBUG: Draft Purchase Invoice {} submitted.".format(pi.name))
+
+        return pi.name
+
+    except Exception as e:
+        frappe.log_error("Failed to create Purchase Invoice: {}".format(str(e)), "Job Registration Automation")
+        print("DEBUG: Error creating Purchase Invoice: {}".format(str(e)))
+        return None
+    
+@frappe.whitelist()
+def create_sales_order_from_job_registration(job_registration):
+    """
+    Create a Sales Order from a Job Registration document by using each entry in the
+    'service_package' child table as an item in the Sales Order.
+    
+    The function:
+    - Loads the Job Registration document.
+    - Iterates over the child table entries (each containing a service_package_item and amount).
+    - Creates a Sales Order with the customer from the Job Registration.
+    - Adds each service package item to the Sales Order items list.
+    - Computes the total amount from the child items.
+    """
+    # Retrieve the Job Registration document
+    jr = frappe.get_doc("Job Registration", job_registration)
+    if not jr:
+        frappe.throw("Job Registration not found.")
+    
+    # Ensure the Job Registration has a customer defined
+    if not jr.customer:
+        frappe.throw("Customer is not specified in the Job Registration.")
+
+    # Build the items list for the Sales Order from the service_package child table
+    items = []
+    total_amount = 0
+    for child in jr.service_package:
+        # Each child row uses the service_package_item as the item code.
+        item_entry = {
+            "item_code": child.service_package_item,
+            "qty": 1,             # You can adjust quantity if needed
+            "rate": child.amount, # Using the amount as the rate
+            "amount": child.amount
+        }
+        items.append(item_entry)
+        total_amount += child.amount
+
+    # Create the Sales Order document using the customer from Job Registration
+    so = frappe.get_doc({
+        "doctype": "Sales Order",
+        "customer": jr.customer,
+        "transaction_date": frappe.utils.today(),
+        "delivery_date": frappe.utils.today(),
+        "items": items,
+        "total": total_amount,
+        "grand_total": total_amount,
+        # Optionally, link back to the Job Registration
+        "job_registration": jr.name
+    })
+    
+    # Insert the Sales Order (draft status)
+    so.insert(ignore_permissions=True)
+    frappe.msgprint("Sales Order {} created successfully.".format(so.name))
+    
+    return so.name
+

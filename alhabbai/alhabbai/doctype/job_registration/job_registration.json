@@ -15,10 +15,17 @@
   "column_break_ohog",
   "contact_number",
   "remarks",
-  "select_package_section",
-  "package",
+  "section_break_npjf",
+  "service_package",
+  "payments_section",
+  "total_amount",
+  "column_break_lnfq",
+  "advance_payment",
+  "column_break_nuhm",
+  "pending_balance",
   "documents_upload_section",
-  "table_tujy"
+  "table_tujy",
+  "amended_from"
  ],
  "fields": [
   {
@@ -67,17 +74,6 @@
    "label": "Remarks"
   },
   {
-   "fieldname": "select_package_section",
-   "fieldtype": "Section Break",
-   "label": "Select Package"
-  },
-  {
-   "fieldname": "package",
-   "fieldtype": "Table",
-   "label": "Package ",
-   "options": "Sales Order Item"
-  },
-  {
    "fieldname": "documents_upload_section",
    "fieldtype": "Section Break",
    "label": "Documents Upload"
@@ -92,11 +88,60 @@
    "fieldtype": "Link",
    "label": "Name",
    "options": "Customer"
+  },
+  {
+   "fieldname": "section_break_npjf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "service_package",
+   "fieldtype": "Table",
+   "label": "service package",
+   "options": "Job Registration Service Item"
+  },
+  {
+   "fieldname": "payments_section",
+   "fieldtype": "Section Break",
+   "label": "Payments"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount"
+  },
+  {
+   "fieldname": "column_break_lnfq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_nuhm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pending_balance",
+   "fieldtype": "Currency",
+   "label": "Pending Balance"
+  },
+  {
+   "fieldname": "advance_payment",
+   "fieldtype": "Currency",
+   "label": "Advance Payment"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Job Registration",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
- "modified": "2025-03-05 09:26:59.911665",
+ "modified": "2025-03-17 04:22:31.321103",
  "modified_by": "Administrator",
  "module": "Alhabbai",
  "name": "Job Registration",
