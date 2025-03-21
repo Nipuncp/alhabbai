@@ -12,8 +12,8 @@ class JobRegistration(Document):
 
 @frappe.whitelist()
 def create_government_purchase_invoice(job_registration, amount=100):
-    # print("DEBUG: create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
-    frappe.logger().info("create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
+    print("DEBUG: create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
+    
     # Ensure amount is provided
     if amount is None:
         frappe.throw("Amount must be provided to create a Purchase Invoice for Government Fees.")
@@ -45,10 +45,9 @@ def create_government_purchase_invoice(job_registration, amount=100):
             }]
         })
         
-        # print("DEBUG: Inserting Purchase Invoice draft...")
-        frappe.logger().info("DEBUG: Inserting Purchase Invoice draft...")
-        frappe.logger().info("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
-        # print("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
+        print("DEBUG: Inserting Purchase Invoice draft...")
+        pi.insert(ignore_permissions=True)
+        print("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
         
         # Uncomment the next line to auto-submit when you are ready:
         # pi.submit()  
@@ -58,7 +57,7 @@ def create_government_purchase_invoice(job_registration, amount=100):
 
     except Exception as e:
         frappe.log_error("Failed to create Purchase Invoice: {}".format(str(e)), "Job Registration Automation")
-        # print("DEBUG: Error creating Purchase Invoice: {}".format(str(e)))
+        print("DEBUG: Error creating Purchase Invoice: {}".format(str(e)))
         return None
     
 @frappe.whitelist()
