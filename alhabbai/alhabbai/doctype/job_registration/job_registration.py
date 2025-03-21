@@ -12,54 +12,55 @@ class JobRegistration(Document):
 
 @frappe.whitelist()
 def create_government_purchase_invoice(job_registration, amount=100):
-    # print("DEBUG: create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
-    frappe.logger().info("create_government_purchase_invoice called with job_registration: {} and amount: {}".format(job_registration, amount))
-    # Ensure amount is provided
-    if amount is None:
-        frappe.throw("Amount must be provided to create a Purchase Invoice for Government Fees.")
-    
+    #Function to create purchase invoice and make payment from prepaid card
+
     try:
-        # Create Purchase Invoice (Draft for now)
-        pi = frappe.get_doc({
-            "doctype": "Purchase Invoice",
-            "supplier": "Government",
-            "posting_date": frappe.utils.today(),
-            "due_date": frappe.utils.today(),
-            "items": [{
-                "item_code": "Government Fees",
-                "qty": 1,
-                "rate": amount,
-                "amount": amount,
-                "expense_account": "Government Charges - AHVS"  # Make sure this account exists
-            }],
-            "total": amount,
-            "grand_total": amount,
-            "outstanding_amount": 0,
-            "is_paid": 1,  # Mark as paid
-            # Add the cash_bank_account field to resolve the error
-            "cash_bank_account": "Prepaid Card 1 - AHVS",  # Ensure this account exists in your Chart of Accounts
-            "payments": [{
-                "mode_of_payment": "Government Prepaid Card",
-                "account": "Prepaid Card 1 - AHVS",  # Ensure this account exists in your Chart of Accounts
-                "amount": amount
-            }]
+        # Verify that the Job Registration exists
+        if not frappe.db.exists("Job Registration", job_registration):
+            frappe.msgprint(f"Job Registration {job_registration} not found")
+            return "Error: Job Registration not found"
+        
+        frappe.logger().info(f"Found job registration: {job_registration}")
+        
+        # Create a new Purchase Invoice
+        pi = frappe.new_doc("Purchase Invoice")
+        pi.supplier = "Government"
+        pi.posting_date = frappe.utils.today()
+        pi.due_date = frappe.utils.today()
+        
+        # Add an item for Government Fees
+        pi.append("items", {
+            "item_code": "Government Fees",
+            "qty": 1,
+            "rate": amount,
+            "amount": amount,
+            "expense_account": "Government Charges - AH"
         })
         
-        # print("DEBUG: Inserting Purchase Invoice draft...")
-        frappe.logger().info("DEBUG: Inserting Purchase Invoice draft...")
-        frappe.logger().info("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
-        # print("DEBUG: Draft Purchase Invoice {} created.".format(pi.name))
+        # Insert the invoice (which calculates totals, etc.)
+        pi.insert()
         
-        # Uncomment the next line to auto-submit when you are ready:
-        # pi.submit()  
-        # print("DEBUG: Draft Purchase Invoice {} submitted.".format(pi.name))
-
+        # Update fields to mark the invoice as paid
+        pi.is_paid = 1
+        pi.mode_of_payment = "Government Prepaid Card"
+        pi.cash_bank_account = "Prepaid Card 1 - AH"
+        # Set paid_amount equal to the total (assuming full payment)
+        pi.paid_amount = pi.grand_total
+        # Zero out outstanding amount
+        pi.outstanding_amount = 0
+        
+        # Save changes and submit if required by your workflow
+        pi.save()
+        
+        frappe.msgprint(f"Created and marked as paid Purchase Invoice: {pi.name}")
         return pi.name
-
+        
     except Exception as e:
-        frappe.log_error("Failed to create Purchase Invoice: {}".format(str(e)), "Job Registration Automation")
-        # print("DEBUG: Error creating Purchase Invoice: {}".format(str(e)))
-        return None
+        error_msg = f"Error in create_government_purchase_invoice: {str(e)}"
+        frappe.log_error(error_msg)
+        frappe.msgprint(error_msg)
+        return f"Error: {str(e)}"
+
     
 @frappe.whitelist()
 def create_sales_order_from_job_registration(job_registration):
