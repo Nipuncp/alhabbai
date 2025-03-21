@@ -30,17 +30,17 @@ def create_government_purchase_invoice(job_registration, amount=100):
                 "qty": 1,
                 "rate": amount,
                 "amount": amount,
-                "expense_account": "Government Charges - AHVS"  # Make sure this account exists
+                "expense_account": "Government Charges - AH"  # Make sure this account exists
             }],
             "total": amount,
             "grand_total": amount,
             "outstanding_amount": 0,
             "is_paid": 1,  # Mark as paid
             # Add the cash_bank_account field to resolve the error
-            "cash_bank_account": "Prepaid Card 1 - AHVS",  # Ensure this account exists in your Chart of Accounts
+            "cash_bank_account": "Prepaid Card 1 - AH",  # Ensure this account exists in your Chart of Accounts
             "payments": [{
                 "mode_of_payment": "Government Prepaid Card",
-                "account": "Prepaid Card 1 - AHVS",  # Ensure this account exists in your Chart of Accounts
+                "account": "Prepaid Card 1 - AH",  # Ensure this account exists in your Chart of Accounts
                 "amount": amount
             }]
         })
