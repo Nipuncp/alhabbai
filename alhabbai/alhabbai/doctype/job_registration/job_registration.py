@@ -11,7 +11,7 @@ class JobRegistration(Document):
 
 
 @frappe.whitelist()
-def create_government_purchase_invoice(job_registration, amount=100):
+def create_government_purchase_invoice(job_registration, amount=None):
     #Function to create purchase invoice and make payment from prepaid card
 
     try:
@@ -22,11 +22,38 @@ def create_government_purchase_invoice(job_registration, amount=100):
         
         frappe.logger().info(f"Found job registration: {job_registration}")
         
+        # Fetch price from Standard Buying price list if amount is not provided
+        if not amount or float(amount) <= 0:
+            # Try to get the price from Standard Buying price list
+            item_price = frappe.get_all(
+                "Item Price",
+                filters={
+                    "item_code": "Government Fees",
+                    "price_list": "Standard Buying",
+                    "buying": 1
+                },
+                fields=["price_list_rate"],
+                order_by="modified desc",
+                limit=1
+            )
+            
+            if item_price and item_price[0].price_list_rate:
+                amount = item_price[0].price_list_rate
+                frappe.logger().info(f"Found price in Standard Buying price list: {amount}")
+            else:
+                # Fallback to default amount if no price found
+                amount = 100
+                frappe.logger().info(f"No price found in price list, using default: {amount}")
+        else:
+            # Convert amount to float if it's provided as a string
+            amount = float(amount)
+        
         # Create a new Purchase Invoice
         pi = frappe.new_doc("Purchase Invoice")
         pi.supplier = "Government"
         pi.posting_date = frappe.utils.today()
         pi.due_date = frappe.utils.today()
+        pi.buying_price_list = "Standard Buying"  # Set the price list
         
         # Add an item for Government Fees
         pi.append("items", {
@@ -60,7 +87,6 @@ def create_government_purchase_invoice(job_registration, amount=100):
         frappe.log_error(error_msg)
         frappe.msgprint(error_msg)
         return f"Error: {str(e)}"
-
     
 @frappe.whitelist()
 def create_sales_order_from_job_registration(job_registration):
