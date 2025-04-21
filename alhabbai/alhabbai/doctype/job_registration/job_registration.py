@@ -6,8 +6,78 @@ from frappe.model.document import Document
 
 
 class JobRegistration(Document):
-	pass
+    def validate(self):
+        """
+        Validate the document during save.
+        Implement custom workflow state transitions.
+        """
+        # If submitting, ensure custom_workflow_status is "Verified"
+        if self.flags.in_submit or (self.docstatus == 0 and self.__dict__.get('__submit', False)):
+            self.custom_workflow_status = "Verified"
+            return  # Skip other validations when submitting
+        
+        # Initialize custom_workflow_status if not set
+        if not self.custom_workflow_status:
+            self.custom_workflow_status = "Draft"
+            
+        # Check child table entries to determine if status should be Pending
+        self.check_child_table_entries()
+            
+        # Validate workflow transitions
+        self.validate_workflow_transitions()
+    
+    
+    def check_child_table_entries(self):
+        """
+        Check if there are entries in Documents (table_tujy) and update workflow status accordingly.
+        Only applies when document is in Draft state.
+        """
+        if self.custom_workflow_status == "Draft" and not self.docstatus:
+            has_document_entries = bool(getattr(self, 'table_tujy', []))
 
+            if has_document_entries:
+                self.custom_workflow_status = "Pending"
+                frappe.msgprint("Status changed to Pending due to document entries.")
+
+    def validate_role_access(self):
+        current_user = frappe.session.user
+        user_roles = frappe.get_roles(current_user)
+
+        # Allow Administrator to do anything
+        if "Administrator" in user_roles:
+            return
+
+        status = self.custom_workflow_status
+
+        if status == "Draft":
+            if "Receptionist" not in user_roles:
+                frappe.throw("Only a Receptionist can work on a Job Registration in Draft status.")
+        
+        elif status == "Pending":
+            if "Typist" not in user_roles and "Receptionist" not in user_roles:
+                frappe.throw("Only a Typist or Receptionist can work on a Job Registration in Pending status.")
+
+        elif status == "Verified":
+            if "Verifier" not in user_roles:
+                frappe.throw("Only a Verifier can work on a Job Registration in Verified status.")
+
+
+
+    
+    def validate_workflow_transitions(self):
+        """
+        Validate that workflow transitions are valid
+        """
+        # Only allow submit if document is in Verified state
+        if self.docstatus == 1 and self.custom_workflow_status != "Verified":
+            # If submitting through API, auto-set to Verified instead of throwing error
+            self.custom_workflow_status = "Verified"
+    
+    def on_submit(self):
+        """
+        Create government purchase invoice when document is submitted
+        """
+        create_government_purchase_invoice(self.name)
 
 
 @frappe.whitelist()
@@ -142,4 +212,3 @@ def create_sales_order_from_job_registration(job_registration):
     frappe.msgprint("Sales Order {} created successfully.".format(so.name))
     
     return so.name
-
