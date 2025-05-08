@@ -1,0 +1,86 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-04-25 13:06:14.467396",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "new_referral",
+  "referral_name",
+  "mobile_number",
+  "default_currency",
+  "column_break_gtxk",
+  "discount_amount",
+  "email"
+ ],
+ "fields": [
+  {
+   "fieldname": "new_referral",
+   "fieldtype": "Section Break",
+   "label": "New Referral"
+  },
+  {
+   "fieldname": "referral_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Referral Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mobile_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Mobile Number"
+  },
+  {
+   "fieldname": "default_currency",
+   "fieldtype": "Link",
+   "label": "Default Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "column_break_gtxk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discount_amount",
+   "fieldtype": "Currency",
+   "label": "Discount Amount",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-05-07 16:36:48.528092",
+ "modified_by": "Administrator",
+ "module": "Alhabbai",
+ "name": "Referral",
+ "nsm_parent_field": "parent_referral",
+ "owner": "ashwinanand@soxo.in",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "referral_name"
+}

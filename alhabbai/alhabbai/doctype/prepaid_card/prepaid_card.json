@@ -1,0 +1,83 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "autoname": "format:CARD-{####}",
+    "creation": "2025-05-02",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+      "card_section",
+      "card_name",
+      "user",
+      "column_break_1",
+      "is_active",
+      "bank_account",
+      "created_account"
+    ],
+    "fields": [
+      {
+        "fieldname": "card_section",
+        "fieldtype": "Section Break",
+        "label": "Card Details"
+      },
+      {
+        "fieldname": "card_name",
+        "fieldtype": "Data",
+        "label": "Card Name",
+        "reqd": 1
+      },
+      {
+        "fieldname": "user",
+        "fieldtype": "Link",
+        "label": "Assign To User",
+        "options": "User",
+        "reqd": 1
+      },
+      {
+        "fieldname": "column_break_1",
+        "fieldtype": "Column Break"
+      },
+      {
+        "default": "1",
+        "fieldname": "is_active",
+        "fieldtype": "Check",
+        "label": "Is Active"
+      },
+      {
+        "fieldname": "bank_account",
+        "fieldtype": "Link",
+        "label": "Bank Account",
+        "options": "Account",
+        "read_only": 1
+      },
+      {
+        "default": "0",
+        "fieldname": "created_account",
+        "fieldtype": "Check",
+        "hidden": 1,
+        "label": "Created Account"
+      }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2025-05-02",
+    "module": "Alhabbai",
+    "name": "Prepaid Card",
+    "naming_rule": "Expression",
+    "owner": "Administrator",
+    "permissions": [
+      {
+        "create": 1,
+        "delete": 1,
+        "email": 1,
+        "export": 1,
+        "print": 1,
+        "read": 1,
+        "role": "System Manager",
+        "share": 1,
+        "write": 1
+      }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC"
+  }
