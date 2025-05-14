@@ -13,6 +13,9 @@ frappe.ui.form.on('Job Registration', {
                 frm.doc.custom_workflow_status === "Pending" ? "orange" : "green"
             );
         }
+        
+        // Calculate pending balance on refresh
+        calculate_pending_balance(frm);
 
         // Check entries and update status
         if (!frm.doc.__islocal) {  // Only show for saved documents
@@ -29,23 +32,6 @@ frappe.ui.form.on('Job Registration', {
                 });
             }, __('Create'));
         }
-        
-
-        // Add Sales Order button for submitted documents
-        // if (frm.doc.docstatus === 1) {
-        //     frm.add_custom_button(__('Create Sales Order'), function() {
-        //         frappe.call({
-        //             method: "alhabbai.alhabbai.doctype.job_registration.job_registration.create_sales_order_from_job_registration",
-        //             args: { job_registration: frm.doc.name },
-        //             callback: function(r) {
-        //                 if (r.message) {
-        //                     frappe.msgprint(__("Sales Order {0} created successfully.", [r.message]));
-        //                     frappe.set_route("Form", "Sales Order", r.message);
-        //                 }
-        //             }
-        //         });
-        //     });
-        // }
 
         // Add Verify button for Verifier role when in Pending state
         if (frm.doc.docstatus === 0 && frm.doc.custom_workflow_status === "Pending" && frappe.user_roles.includes("Verifier")) {
@@ -68,6 +54,8 @@ frappe.ui.form.on('Job Registration', {
         console.log("🔍 DEBUG: Running validate()");
         update_total_amount(frm);
         checkChildTableEntries(frm);
+        // Ensure pending balance is calculated during validation
+        calculate_pending_balance(frm);
     },
 
     on_submit: function(frm) {
@@ -76,11 +64,24 @@ frappe.ui.form.on('Job Registration', {
 
     advance_payment: function(frm) {
         console.log("🔍 DEBUG: Advance Payment updated");
-        // Calculate pending by subtracting advance payment from (total - discount)
-        let totalAfterDiscount = (frm.doc.total_amount || 0) - (frm.doc.custom_discount_amount || 0);
-        let pending = totalAfterDiscount - (frm.doc.advance_payment || 0);
-        frm.set_value("pending_balance", pending);
-        frm.refresh_field("pending_balance");
+        calculate_pending_balance(frm);
+    },
+    
+    // Add handlers for both discount fields
+    custom_discount_amount: function(frm) {
+        console.log("🔍 DEBUG: Referral discount updated");
+        calculate_pending_balance(frm);
+    },
+    
+    custom_company_discount: function(frm) {
+        console.log("🔍 DEBUG: Company discount updated");
+        calculate_pending_balance(frm);
+    },
+    
+    // Also trigger when total amount changes directly
+    total_amount: function(frm) {
+        console.log("🔍 DEBUG: Total amount updated");
+        calculate_pending_balance(frm);
     },
 
     after_save: function(frm) {
@@ -88,6 +89,7 @@ frappe.ui.form.on('Job Registration', {
         if (frm.doc.custom_workflow_status === "Pending") {
             create_government_purchase_invoice(frm);
         }
+        checkChildTableEntries(frm);
     }
 });
 
@@ -147,6 +149,34 @@ frappe.ui.form.on('Documents', {
     }
 });
 
+// Centralized function to calculate pending balance
+function calculate_pending_balance(frm) {
+    // Convert all values to numbers and handle empty fields
+    let totalAmount = frm.doc.total_amount ? parseFloat(frm.doc.total_amount) : 0;
+    let referralDiscount = frm.doc.custom_discount_amount ? parseFloat(frm.doc.custom_discount_amount) : 0;
+    let companyDiscount = frm.doc.custom_company_discount ? parseFloat(frm.doc.custom_company_discount) : 0;
+    let advancePayment = frm.doc.advance_payment ? parseFloat(frm.doc.advance_payment) : 0;
+    
+    console.log("🔍 DEBUG: Calculation values:", {
+        totalAmount,
+        referralDiscount,
+        companyDiscount,
+        advancePayment
+    });
+    
+    // Calculate pending balance
+    let totalAfterDiscount = totalAmount - referralDiscount - companyDiscount;
+    let pending = totalAfterDiscount - advancePayment;
+    
+    // Ensure pending is not negative
+    pending = Math.max(0, pending);
+    
+    console.log("🔍 DEBUG: Final pending balance:", pending);
+    
+    frm.set_value("pending_balance", pending);
+    frm.refresh_field("pending_balance");
+}
+
 // Update status based on entries
 function checkChildTableEntries(frm) {
     const hasDocumentsEntries = frm.doc.table_tujy && frm.doc.table_tujy.length > 0;
@@ -167,12 +197,15 @@ function update_total_amount(frm) {
     let total = 0;
     if (Array.isArray(frm.doc.service_package)) {
         frm.doc.service_package.forEach(row => {
-            total += row.amount || 0;
+            total += row.amount ? parseFloat(row.amount) : 0;
         });
     }
+    
+    // Set the total amount
     frm.set_value("total_amount", total);
-    frm.set_value("pending_balance", total - (frm.doc.advance_payment || 0));
-    frm.refresh_fields(["total_amount", "pending_balance"]);
+    
+    // Calculate pending balance using the centralized function
+    calculate_pending_balance(frm);
 }
 
 // Call backend to create purchase invoice
@@ -229,11 +262,3 @@ function create_government_purchase_invoice(frm, amount = null) {
         });
     });
 }
-
-frappe.ui.form.on('Job Registration', {
-    after_save: function(frm) {
-        if (frm.doc.docstatus === 0) {
-            checkChildTableEntries(frm);
-        }
-    }
-});
