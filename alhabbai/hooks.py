@@ -7,7 +7,47 @@ app_license = "mit"
 
 # Apps
 # ------------------
+fixtures = [
+    # Export all 3 custom fields
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["name", "in", [
+                "Customer-custom_discount_table",
+                "Customer-custom_discount_settings", 
+                "Job Registration-custom_candidate"
+            ]]
+        ]
+    },
+       
 
+    
+    # Export property setters for Customer fields
+    {
+        "dt": "Property Setter",
+        "filters": [
+            ["doc_type", "=", "Customer"],
+            ["field_name", "in", ["custom_discount_table", "custom_discount_settings"]]
+        ]
+    },
+    
+    # Export property setters for Job Registration fields
+    {
+        "dt": "Property Setter",
+        "filters": [
+            ["doc_type", "=", "Job Registration"],
+            ["field_name", "=", "custom_candidate"]
+        ]
+    },
+    
+    # Export property setters for the child table
+    {
+        "dt": "Property Setter",
+        "filters": [
+            ["doc_type", "=", "Discount Table"]
+        ]
+    }
+]
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page

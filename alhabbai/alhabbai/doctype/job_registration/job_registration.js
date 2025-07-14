@@ -1,10 +1,8 @@
-// Job Registration custom workflow
+// Job Registration custom workflow - WORKING VERSION
 frappe.ui.form.on('Job Registration', {
     refresh: function(frm) {
         console.log("🔍 DEBUG: Refresh triggered, docstatus =", frm.doc.docstatus);
         console.log("🔍 DEBUG: Current workflow status =", frm.doc.custom_workflow_status);
-        console.log("🔍 DEBUG: Document upload entries =", frm.doc.table_tujy ? frm.doc.table_tujy.length : 0);
-        console.log("🔍 DEBUG: Service package entries =", frm.doc.service_package ? frm.doc.service_package.length : 0);
 
         // Set header status indicator
         if (frm.doc.custom_workflow_status) {
@@ -17,8 +15,8 @@ frappe.ui.form.on('Job Registration', {
         // Calculate pending balance on refresh
         calculate_pending_balance(frm);
 
-        // Check entries and update status
-        if (!frm.doc.__islocal) {  // Only show for saved documents
+        // Add Create Sales Order button
+        if (!frm.doc.__islocal) {
             frm.add_custom_button(__('Create Sales Order'), function() {
                 frappe.call({
                     method: "alhabbai.alhabbai.doctype.job_registration.job_registration.create_sales_order_from_job_registration",
@@ -48,18 +46,29 @@ frappe.ui.form.on('Job Registration', {
                 );
             }).addClass("btn-primary");
         }
+
+        // Auto-calculate customer discount on refresh if items exist
+        if (frm.doc.customer && frm.doc.service_package && frm.doc.service_package.length > 0) {
+            calculate_customer_discount(frm);
+        }
     },
 
     validate: function(frm) {
         console.log("🔍 DEBUG: Running validate()");
         update_total_amount(frm);
         checkChildTableEntries(frm);
-        // Ensure pending balance is calculated during validation
         calculate_pending_balance(frm);
     },
 
-    on_submit: function(frm) {
-        console.log("🔍 DEBUG: Job Registration submitted");
+    customer: function(frm) {
+        console.log("🔍 DEBUG: Customer changed to:", frm.doc.customer);
+        // Clear existing discount when customer changes
+        frm.set_value("custom_discount_amount", 0);
+        
+        // Recalculate discounts for existing items
+        if (frm.doc.service_package && frm.doc.service_package.length > 0) {
+            setTimeout(() => calculate_customer_discount(frm), 500);
+        }
     },
 
     advance_payment: function(frm) {
@@ -67,18 +76,11 @@ frappe.ui.form.on('Job Registration', {
         calculate_pending_balance(frm);
     },
     
-    // Add handlers for both discount fields
     custom_discount_amount: function(frm) {
-        console.log("🔍 DEBUG: Referral discount updated");
+        console.log("🔍 DEBUG: Discount amount updated");
         calculate_pending_balance(frm);
     },
     
-    custom_company_discount: function(frm) {
-        console.log("🔍 DEBUG: Company discount updated");
-        calculate_pending_balance(frm);
-    },
-    
-    // Also trigger when total amount changes directly
     total_amount: function(frm) {
         console.log("🔍 DEBUG: Total amount updated");
         calculate_pending_balance(frm);
@@ -93,12 +95,14 @@ frappe.ui.form.on('Job Registration', {
     }
 });
 
-// Service Package child table
+// Service Package child table - AUTO-CALCULATE DISCOUNT
 frappe.ui.form.on("Job Registration Service Item", {
     service_package_item: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
+        console.log("🔍 DEBUG: Service item changed:", row.service_package_item);
+        
         if (row.service_package_item) {
-            console.log("🔍 DEBUG: Fetching price for item:", row.service_package_item);
+            // Get item price first
             frappe.call({
                 method: "erpnext.stock.get_item_details.get_item_details",
                 args: {
@@ -119,19 +123,34 @@ frappe.ui.form.on("Job Registration Service Item", {
                     if (r.message) {
                         let rate = r.message.price_list_rate || r.message.rate || 0;
                         frappe.model.set_value(cdt, cdn, 'amount', rate);
+                        console.log("🔍 DEBUG: Set rate to:", rate);
                     } else {
                         frappe.model.set_value(cdt, cdn, 'amount', 0);
                     }
+                    
+                    // Update total and calculate customer discount
                     update_total_amount(frm);
+                    
+                    // IMPORTANT: Calculate customer discount after price is set
+                    setTimeout(() => {
+                        console.log("🔍 DEBUG: About to calculate customer discount...");
+                        calculate_customer_discount(frm);
+                    }, 300);
                 }
             });
         }
     },
+    
     amount: function(frm) {
         update_total_amount(frm);
+        // Recalculate discount when amount changes
+        setTimeout(() => calculate_customer_discount(frm), 100);
     },
+    
     service_package_remove: function(frm) {
         update_total_amount(frm);
+        // Recalculate discount when items are removed
+        setTimeout(() => calculate_customer_discount(frm), 100);
     }
 });
 
@@ -149,27 +168,20 @@ frappe.ui.form.on('Documents', {
     }
 });
 
-// Centralized function to calculate pending balance
+// Calculate pending balance (SINGLE DISCOUNT FIELD)
 function calculate_pending_balance(frm) {
-    // Convert all values to numbers and handle empty fields
     let totalAmount = frm.doc.total_amount ? parseFloat(frm.doc.total_amount) : 0;
-    let referralDiscount = frm.doc.custom_discount_amount ? parseFloat(frm.doc.custom_discount_amount) : 0;
-    let companyDiscount = frm.doc.custom_company_discount ? parseFloat(frm.doc.custom_company_discount) : 0;
+    let discount = frm.doc.custom_discount_amount ? parseFloat(frm.doc.custom_discount_amount) : 0;
     let advancePayment = frm.doc.advance_payment ? parseFloat(frm.doc.advance_payment) : 0;
     
-    console.log("🔍 DEBUG: Calculation values:", {
+    console.log("🔍 DEBUG: Pending balance calculation:", {
         totalAmount,
-        referralDiscount,
-        companyDiscount,
+        discount,
         advancePayment
     });
     
-    // Calculate pending balance
-    let totalAfterDiscount = totalAmount - referralDiscount - companyDiscount;
-    let pending = totalAfterDiscount - advancePayment;
-    
-    // Ensure pending is not negative
-    pending = Math.max(0, pending);
+    let totalAfterDiscount = totalAmount - discount;
+    let pending = Math.max(0, totalAfterDiscount - advancePayment);
     
     console.log("🔍 DEBUG: Final pending balance:", pending);
     
@@ -177,7 +189,72 @@ function calculate_pending_balance(frm) {
     frm.refresh_field("pending_balance");
 }
 
-// Update status based on entries
+// Update total amount
+function update_total_amount(frm) {
+    let total = 0;
+    if (Array.isArray(frm.doc.service_package)) {
+        frm.doc.service_package.forEach(row => {
+            total += row.amount ? parseFloat(row.amount) : 0;
+        });
+    }
+    
+    frm.set_value("total_amount", total);
+    calculate_pending_balance(frm);
+}
+
+// AUTO-CALCULATE CUSTOMER DISCOUNT
+function calculate_customer_discount(frm) {
+    console.log("🔍 DEBUG: === Starting calculate_customer_discount ===");
+    console.log("🔍 DEBUG: Customer:", frm.doc.customer);
+    console.log("🔍 DEBUG: Service items:", frm.doc.service_package?.length || 0);
+    
+    if (!frm.doc.customer || !frm.doc.service_package || frm.doc.service_package.length === 0) {
+        console.log("🔍 DEBUG: No customer or no items, setting discount to 0");
+        frm.set_value("custom_discount_amount", 0);
+        calculate_pending_balance(frm);
+        return;
+    }
+    
+    // Prepare service items
+    let service_items = frm.doc.service_package.map(item => ({
+        service_package_item: item.service_package_item
+    }));
+    
+    console.log("🔍 DEBUG: Calling server with:", service_items);
+    
+    frappe.call({
+        method: "alhabbai.alhabbai.doctype.job_registration.job_registration.get_customer_discount_for_items",
+        args: {
+            customer: frm.doc.customer,
+            service_items: JSON.stringify(service_items)
+        },
+        callback: function(r) {
+            console.log("🔍 DEBUG: Server response:", r.message);
+            if (r.message) {
+                let total_discount = r.message.total_discount || 0;
+                
+                console.log("🔍 DEBUG: Setting discount to:", total_discount);
+                
+                // Set the discount
+                frm.set_value("custom_discount_amount", total_discount);
+                calculate_pending_balance(frm);
+                
+                // Show notification
+                if (total_discount > 0) {
+                    frappe.show_alert({
+                        message: `Customer discount applied: ${total_discount}`,
+                        indicator: 'green'
+                    });
+                }
+            }
+        },
+        error: function(r) {
+            console.error("🔍 DEBUG: Error:", r);
+        }
+    });
+}
+
+// Check child table entries for workflow
 function checkChildTableEntries(frm) {
     const hasDocumentsEntries = frm.doc.table_tujy && frm.doc.table_tujy.length > 0;
     console.log("🔍 DEBUG: Documents entries present:", hasDocumentsEntries);
@@ -192,27 +269,10 @@ function checkChildTableEntries(frm) {
     }
 }
 
-// Total + advance calculation
-function update_total_amount(frm) {
-    let total = 0;
-    if (Array.isArray(frm.doc.service_package)) {
-        frm.doc.service_package.forEach(row => {
-            total += row.amount ? parseFloat(row.amount) : 0;
-        });
-    }
-    
-    // Set the total amount
-    frm.set_value("total_amount", total);
-    
-    // Calculate pending balance using the centralized function
-    calculate_pending_balance(frm);
-}
-
-// Call backend to create purchase invoice
+// Create government purchase invoice
 function create_government_purchase_invoice(frm, amount = null) {
     console.log("🔍 DEBUG: Checking for existing PI");
     
-    // Get list of PIs with our Job Registration
     frappe.db.get_value('Purchase Invoice', 
         { custom_job_registration: frm.doc.name, docstatus: ['!=', 2] }, 
         ['name']
@@ -242,23 +302,16 @@ function create_government_purchase_invoice(frm, amount = null) {
                         message: `Purchase Invoice ${r.message} created successfully`,
                         indicator: 'green'
                     });
-                    // Reload the form to reflect changes
                     frm.reload_doc();
                 }
             },
             error: function(r) {
                 console.error("🔍 DEBUG: PI creation failed:", r);
                 frappe.show_alert({
-                    message: `Failed to create Purchase Invoice: ${r._server_messages || "Unknown error"}`,
+                    message: `Failed to create Purchase Invoice`,
                     indicator: 'red'
                 });
             }
-        });
-    }).catch(err => {
-        console.error("🔍 DEBUG: Error checking existing PI:", err);
-        frappe.show_alert({
-            message: "Error checking for existing Purchase Invoice",
-            indicator: 'red'
         });
     });
 }

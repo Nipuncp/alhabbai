@@ -270,105 +270,189 @@ def create_sales_order_from_job_registration(job_registration):
     frappe.msgprint(f"Sales Order {so.name} created successfully with UAE VAT 5% tax template applied.")
     
     return so.name
-    """
-    Create a Sales Order from a Job Registration document.
-    Directly applies the UAE VAT 5% tax template and sets advance_paid from Job Registration.
-    """
-    # Retrieve the Job Registration document
-    jr = frappe.get_doc("Job Registration", job_registration)
-    if not jr:
-        frappe.throw("Job Registration not found.")
     
-    # Ensure the Job Registration has a customer defined
-    if not jr.customer:
-        frappe.throw("Customer is not specified in the Job Registration.")
-
-    # Handle discount amount with extra safety
+@frappe.whitelist()
+def create_government_purchase_invoice(job_registration, amount=None):
+    """Create a Purchase Invoice for government fees and make payment from prepaid card"""
     try:
-        discount_amount = 0
-        if hasattr(jr, 'custom_discount_amount') and jr.custom_discount_amount:
-            if isinstance(jr.custom_discount_amount, str) and jr.custom_discount_amount.strip():
-                discount_amount = float(jr.custom_discount_amount)
-            elif isinstance(jr.custom_discount_amount, (int, float)):
-                discount_amount = float(jr.custom_discount_amount)
-    except Exception as e:
-        frappe.msgprint(f"Warning: Error processing discount amount: {str(e)}. Setting to 0.")
-        discount_amount = 0
-    
-    # Get advance payment amount from Job Registration
-    advance_payment = 0
-    if hasattr(jr, 'advance_payment') and jr.advance_payment:
-        try:
-            if isinstance(jr.advance_payment, str) and jr.advance_payment.strip():
-                advance_payment = float(jr.advance_payment)
-            elif isinstance(jr.advance_payment, (int, float)):
-                advance_payment = float(jr.advance_payment)
-        except Exception as e:
-            frappe.msgprint(f"Warning: Error processing advance payment: {str(e)}. Setting to 0.")
-    
-    # Create the Sales Order document
-    so = frappe.new_doc("Sales Order")
-    so.customer = jr.customer
-    so.transaction_date = frappe.utils.today()
-    so.delivery_date = frappe.utils.today()
-    so.company = frappe.defaults.get_defaults().company
-    
-    # Set job_registration reference if you have a custom field for it
-    if frappe.get_meta("Sales Order").has_field("job_registration"):
-        so.job_registration = jr.name
-    
-    # Add items from the Job Registration
-    for child in jr.service_package:
-        so.append("items", {
-            "item_code": child.service_package_item,
+        # Verify that the Job Registration exists
+        if not frappe.db.exists("Job Registration", job_registration):
+            frappe.msgprint(f"Job Registration {job_registration} not found")
+            return "Error: Job Registration not found"
+        
+        # Check if PI already exists
+        existing_pi = frappe.get_all(
+            "Purchase Invoice",
+            filters={
+                "custom_job_registration": job_registration,
+                "docstatus": ["!=", 2]
+            }
+        )
+        
+        frappe.logger().info(f"Found job registration: {job_registration}")
+        if existing_pi:
+            return existing_pi[0].name
+            
+        # Get the bank account for current user's prepaid card
+        current_user = frappe.session.user
+        bank_account = get_user_bank_account(current_user)
+        
+        if not bank_account:
+            frappe.throw("No active prepaid card bank account assigned to current user")
+            
+        # Get job registration doc
+        jr = frappe.get_doc("Job Registration", job_registration)
+        
+        # Fetch price from Standard Buying price list if amount is not provided
+        if not amount or float(amount) <= 0:
+            # Try to get the price from Standard Buying price list
+            item_price = frappe.get_all(
+                "Item Price",
+                filters={
+                    "item_code": "Government Fees",
+                    "price_list": "Standard Buying",
+                    "buying": 1
+                },
+                fields=["price_list_rate"],
+                order_by="modified desc",
+                limit=1
+            )
+            
+            if item_price and item_price[0].price_list_rate:
+                amount = item_price[0].price_list_rate
+                frappe.logger().info(f"Found price in Standard Buying price list: {amount}")
+            else:
+                # Fallback to default amount if no price found
+                amount = 100
+                frappe.logger().info(f"No price found in price list, using default: {amount}")
+        else:
+            # Convert amount to float if it's provided as a string
+            amount = float(amount)
+
+        # Create Purchase Invoice
+        pi = frappe.new_doc("Purchase Invoice")
+        pi.supplier = "Government"
+        pi.posting_date = frappe.utils.today()
+        pi.due_date = frappe.utils.today()
+        pi.buying_price_list = "Standard Buying"
+        pi.company = frappe.defaults.get_defaults().company
+        pi.is_paid = 1
+        pi.mode_of_payment = "Government Prepaid Card"
+        pi.cash_bank_account = bank_account
+        
+        # Link to job registration using custom field
+        pi.custom_job_registration = job_registration
+
+        # Add item for Government Fees
+        pi.append("items", {
+            "item_code": "Government Fees",
             "qty": 1,
-            "rate": child.amount
+            "rate": amount,
+            "amount": amount,
+            "expense_account": "Government Charges - AH"
         })
-    
-    # Directly set the UAE VAT 5% tax template
-    so.taxes_and_charges = "UAE VAT 5% - AH"
-    
-    # Apply discount directly to the sales order
-    if isinstance(discount_amount, (int, float)) and discount_amount > 0:
-        so.apply_discount_on = "Grand Total"
-        so.discount_amount = discount_amount
-        frappe.msgprint(f"Applying discount of {discount_amount}")
-    
-    # Set advance_paid if it's a valid field in Sales Order
-    if frappe.get_meta("Sales Order").has_field("advance_paid"):
-        so.advance_paid = advance_payment
-        frappe.msgprint(f"Setting advance paid amount: {advance_payment}")
-    elif advance_payment > 0:
-        frappe.msgprint(f"Note: Advance payment of {advance_payment} exists but could not be set in Sales Order (field not found)")
-    
-    # Save the sales order
-    so.insert(ignore_permissions=True)
-    
-    # Now fetch the saved document to apply taxes from template
-    so = frappe.get_doc("Sales Order", so.name)
-    
-    # Load the taxes - manual approach since append_taxes_from_template() isn't available
-    if so.taxes_and_charges:
-        # Get tax template
-        tax_template = frappe.get_doc("Sales Taxes and Charges Template", so.taxes_and_charges)
+
+        # Insert the invoice (which calculates totals, etc.)
+        pi.insert(ignore_permissions=True)
         
-        # Clear existing taxes if any
-        so.taxes = []
+        # Set payment details
+        pi.paid_amount = pi.grand_total
+        pi.outstanding_amount = 0
         
-        # Add taxes from template
-        for tax in tax_template.taxes:
-            so.append("taxes", {
-                "charge_type": tax.charge_type,
-                "account_head": tax.account_head,
-                "description": tax.description,
-                "rate": tax.rate,
-                "included_in_print_rate": tax.included_in_print_rate
+        # Save changes and submit
+        pi.save()
+        pi.submit()
+
+        frappe.msgprint(f"Purchase Invoice {pi.name} created and marked as paid with amount {amount}")
+        return pi.name
+
+    except Exception as e:
+        error_msg = f"Error in create_government_purchase_invoice: {str(e)}"
+        frappe.log_error(error_msg)
+        frappe.msgprint(error_msg)
+        raise
+
+
+@frappe.whitelist()
+def get_customer_discount_for_items(customer, service_items):
+    """
+    Get total customer discount for given service items based on their service package groups
+    Args:
+        customer: Customer name
+        service_items: List of item codes or JSON string of service package items
+    Returns:
+        dict: Total discount amount and breakdown by item
+    """
+    import json
+    
+    if isinstance(service_items, str):
+        try:
+            service_items = json.loads(service_items)
+        except:
+            service_items = [service_items]
+    
+    if not customer or not service_items:
+        return {"total_discount": 0, "item_discounts": []}
+    
+    # Get customer document with discount table
+    customer_doc = frappe.get_doc("Customer", customer)
+    
+    if not hasattr(customer_doc, 'custom_discount_table') or not customer_doc.custom_discount_table:
+        return {"total_discount": 0, "item_discounts": []}
+    
+    # Create discount lookup dictionary
+    discount_lookup = {}
+    for discount_row in customer_doc.custom_discount_table:
+        if discount_row.service_package_group and discount_row.discount:
+            discount_lookup[discount_row.service_package_group] = float(discount_row.discount)
+    
+    total_discount = 0
+    item_discounts = []
+    
+    # Process each service item
+    for item in service_items:
+        item_code = item if isinstance(item, str) else item.get('service_package_item')
+        
+        if not item_code:
+            continue
+            
+        # Get item's service package group (item_group)
+        item_doc = frappe.get_doc("Item", item_code)
+        service_package_group = item_doc.item_group
+        
+        # Look up discount for this service package group
+        discount_amount = discount_lookup.get(service_package_group, 0)
+        
+        if discount_amount > 0:
+            total_discount += discount_amount
+            item_discounts.append({
+                "item_code": item_code,
+                "service_package_group": service_package_group,
+                "discount": discount_amount
             })
     
-    # Calculate taxes and totals
-    so.calculate_taxes_and_totals()
-    so.save()
+    return {
+        "total_discount": total_discount,
+        "item_discounts": item_discounts
+    }
+
+
+@frappe.whitelist()
+def get_service_package_group_discount(customer, service_package_group):
+    """
+    Get discount for a specific service package group for a customer
+    """
+    if not customer or not service_package_group:
+        return 0
     
-    frappe.msgprint(f"Sales Order {so.name} created successfully with UAE VAT 5% tax template applied.")
+    customer_doc = frappe.get_doc("Customer", customer)
     
-    return so.name
+    if not hasattr(customer_doc, 'custom_discount_table') or not customer_doc.custom_discount_table:
+        return 0
+    
+    # Find matching service package group
+    for discount_row in customer_doc.custom_discount_table:
+        if discount_row.service_package_group == service_package_group:
+            return float(discount_row.discount) if discount_row.discount else 0
+    
+    return 0

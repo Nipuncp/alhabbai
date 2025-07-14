@@ -1,0 +1,230 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-06-23 07:41:09.343451",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+  "field_order": [
+    "basic_information_section",
+    "candidate_name",
+    "customer",
+    "column_break_basic1",
+    "email",
+    "phone",
+    "column_break_basic2",
+    "date_of_birth",
+    "gender",
+    "personal_details_section",
+    "nationality",
+    "passport_number",
+    "column_break_personal1",
+    "passport_expiry",
+    "marital_status",
+    "column_break_personal2",
+    "emergency_contact_name",
+    "emergency_contact_number",
+    "professional_information_section",
+    "qualification",
+    "experience_years",
+    "column_break_prof1",
+    "profession",
+    "current_employer",
+    "column_break_prof2",
+    "salary_expectation",
+    "preferred_location",
+    "address_information_section",
+    "current_address",
+    "column_break_addr1",
+    "permanent_address",
+    "status_and_tracking_section",
+    "candidate_status",
+    "registration_date",
+    "column_break_status1",
+    "last_updated",
+    "assigned_to",
+    "column_break_status2",
+    "remarks",
+    "documents_section",
+    "amended_from"
+  ],
+  "fields": [
+    {
+      "fieldname": "basic_information_section",
+      "fieldtype": "Section Break",
+      "label": "Basic Information"
+    },
+    {
+      "fieldname": "candidate_name",
+      "fieldtype": "Data",
+      "label": "Candidate Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "customer",
+      "fieldtype": "Link",
+      "label": "Customer",
+      "options": "Customer",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_basic1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "email",
+      "fieldtype": "Data",
+      "label": "Email Address"
+    },
+    {
+      "fieldname": "phone",
+      "fieldtype": "Data",
+      "label": "Phone Number",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_basic2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "date_of_birth",
+      "fieldtype": "Date",
+      "label": "Date of Birth"
+    },
+    {
+      "fieldname": "gender",
+      "fieldtype": "Select",
+      "label": "Gender",
+      "options": "Male\nFemale\nOther"
+    },
+    {
+      "fieldname": "personal_details_section",
+      "fieldtype": "Section Break",
+      "label": "Personal Details"
+    },
+    {
+      "fieldname": "nationality",
+      "fieldtype": "Data",
+      "label": "Nationality"
+    },
+    {
+      "fieldname": "passport_number",
+      "fieldtype": "Data",
+      "label": "Passport Number"
+    },
+    {
+      "fieldname": "column_break_personal1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "passport_expiry",
+      "fieldtype": "Date",
+      "label": "Passport Expiry Date"
+    },
+    {
+      "fieldname": "marital_status",
+      "fieldtype": "Select",
+      "label": "Marital Status",
+      "options": "Single\nMarried\nDivorced\nWidowed"
+    },
+    {
+      "fieldname": "column_break_personal2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "registration_date",
+      "fieldtype": "Date",
+      "label": "Registration Date",
+      "default": "Today"
+    },
+    {
+      "fieldname": "column_break_status1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "last_updated",
+      "fieldtype": "Datetime",
+      "label": "Last Updated",
+      "read_only": 1
+    },
+    {
+      "fieldname": "assigned_to",
+      "fieldtype": "Link",
+      "label": "Assigned To",
+      "options": "User"
+    },
+    {
+      "fieldname": "column_break_status2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    },
+    {
+      "fieldname": "documents_section",
+      "fieldtype": "Section Break",
+      "label": "Documents"
+    },
+
+    {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "no_copy": 1,
+      "options": "Candidate",
+      "print_hide": 1,
+      "read_only": 1,
+      "search_index": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2025-06-23 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Alhabbai",
+  "name": "Candidate",
+  "naming_rule": "By fieldname",
+  "naming_series": "CAND-.YYYY.-.#####",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "HR Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "HR User",
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "title_field": "candidate_name",
+  "track_changes": 1
+}
