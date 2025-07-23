@@ -14,8 +14,20 @@ fixtures = [
         "filters": [
             ["name", "in", [
                 "Customer-custom_discount_table",
-                "Customer-custom_discount_settings", 
-                "Job Registration-custom_candidate"
+                "Customer-custom_discount_settings",
+                "Job Registration-custom_candidate",
+                "Sales Order-payment_collection_section",
+                "Sales Order-custom_advance_payment_amount",
+                "Sales Order-custom_mode_of_payment",
+                "Sales Order-payment_column_break",
+                "Sales Order-custom_payment_account",
+                "Sales Order-custom_payment_reference",
+                "Sales Order-payment_status_section",
+                "Sales Order-custom_outstanding_amount",
+                "Sales Order-custom_payment_status",
+                "Sales Order-payment_status_column_break",
+                "Sales Order-custom_payment_entry",
+                "Sales Order-custom_collect_payment_button"
             ]]
         ]
     },
@@ -26,8 +38,8 @@ fixtures = [
     {
         "dt": "Property Setter",
         "filters": [
-            ["doc_type", "=", "Customer"],
-            ["field_name", "in", ["custom_discount_table", "custom_discount_settings"]]
+            ["doc_type", "in", ["Customer", "Job Registration", "Sales Order"]],
+            ["field_name", "like", "custom_%"]
         ]
     },
     
@@ -39,15 +51,19 @@ fixtures = [
             ["field_name", "=", "custom_candidate"]
         ]
     },
-    
-    # Export property setters for the child table
-    {
-        "dt": "Property Setter",
-        "filters": [
-            ["doc_type", "=", "Discount Table"]
-        ]
-    }
+
 ]
+
+doctype_js = {
+    "Sales Order": "public/js/sales_order.js"
+}
+
+doc_events = {
+    "Sales Order": {
+        "before_save": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_before_save",
+        "on_update_after_submit": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_on_update_after_submit"
+    }
+}
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
