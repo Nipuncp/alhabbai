@@ -223,48 +223,62 @@ def create_sales_order_from_job_registration(job_registration):
             "rate": child.amount
         })
     
-    # Directly set the UAE VAT 5% tax template
-    so.taxes_and_charges = "UAE VAT 5% - AH"
+    # # Directly set the UAE VAT 5% tax template
+    # so.taxes_and_charges = "UAE VAT 5% - AH"
     
-    # Apply total discount directly to the sales order
-    if total_discount_amount > 0:
-        so.apply_discount_on = "Grand Total"
-        so.discount_amount = total_discount_amount
-        frappe.msgprint(f"Applying total discount of {total_discount_amount}")
+    # # Apply total discount directly to the sales order
+    # if total_discount_amount > 0:
+    #     so.apply_discount_on = "Grand Total"
+    #     so.discount_amount = total_discount_amount
+    #     frappe.msgprint(f"Applying total discount of {total_discount_amount}")
     
-    # Set advance_paid if it's a valid field in Sales Order
-    if frappe.get_meta("Sales Order").has_field("advance_paid"):
-        so.advance_paid = advance_payment
-        frappe.msgprint(f"Setting advance paid amount: {advance_payment}")
-    elif advance_payment > 0:
-        frappe.msgprint(f"Note: Advance payment of {advance_payment} exists but could not be set in Sales Order (field not found)")
+    # # Set advance_paid if it's a valid field in Sales Order
+    # if frappe.get_meta("Sales Order").has_field("advance_paid"):
+    #     so.advance_paid = advance_payment
+    #     frappe.msgprint(f"Setting advance paid amount: {advance_payment}")
+    # elif advance_payment > 0:
+    #     frappe.msgprint(f"Note: Advance payment of {advance_payment} exists but could not be set in Sales Order (field not found)")
     
-    # Save the sales order
+    # # Save the sales order
+    # so.insert(ignore_permissions=True)
+    
+    # # Now fetch the saved document to apply taxes from template
+    # so = frappe.get_doc("Sales Order", so.name)
+    
+    # # Load the taxes - manual approach since append_taxes_from_template() isn't available
+    # if so.taxes_and_charges:
+    #     # Get tax template
+    #     tax_template = frappe.get_doc("Sales Taxes and Charges Template", so.taxes_and_charges)
+        
+    #     # Clear existing taxes if any
+    #     so.taxes = []
+        
+    #     # Add taxes from template
+    #     for tax in tax_template.taxes:
+    #         so.append("taxes", {
+    #             "charge_type": tax.charge_type,
+    #             "account_head": tax.account_head,
+    #             "description": tax.description,
+    #             "rate": tax.rate,
+    #             "included_in_print_rate": tax.included_in_print_rate
+    #         })
+    
+    # # Calculate taxes and totals
+    # so.calculate_taxes_and_totals()
+    # Add debug logging before tax calculation
     so.insert(ignore_permissions=True)
+    frappe.logger().info(f"Before calculate_taxes_and_totals:")
+    for item in so.items:
+        frappe.logger().info(f"Item: {item.item_code}, Tax Template: {item.item_tax_template}, Tax Rate: {item.item_tax_rate}")
     
-    # Now fetch the saved document to apply taxes from template
-    so = frappe.get_doc("Sales Order", so.name)
-    
-    # Load the taxes - manual approach since append_taxes_from_template() isn't available
-    if so.taxes_and_charges:
-        # Get tax template
-        tax_template = frappe.get_doc("Sales Taxes and Charges Template", so.taxes_and_charges)
-        
-        # Clear existing taxes if any
-        so.taxes = []
-        
-        # Add taxes from template
-        for tax in tax_template.taxes:
-            so.append("taxes", {
-                "charge_type": tax.charge_type,
-                "account_head": tax.account_head,
-                "description": tax.description,
-                "rate": tax.rate,
-                "included_in_print_rate": tax.included_in_print_rate
-            })
-    
-    # Calculate taxes and totals
     so.calculate_taxes_and_totals()
+
+    # Add debug logging after tax calculation  
+    frappe.logger().info(f"After calculate_taxes_and_totals:")
+    for item in so.items:
+        frappe.logger().info(f"Item: {item.item_code}, Tax Rate: {item.tax_rate}, Tax Amount: {item.tax_amount}")
+
+    
     so.save()
     
     frappe.msgprint(f"Sales Order {so.name} created successfully with UAE VAT 5% tax template applied.")
