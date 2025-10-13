@@ -60,18 +60,25 @@ frappe.ui.form.on('Job Registration', {
 
         // Add Create Sales Order button
         if (!frm.doc.__islocal) {
-            frm.add_custom_button(__('Create Sales Order'), function() {
-                frappe.call({
-                    method: "alhabbai.alhabbai.doctype.job_registration.job_registration.create_sales_order_from_job_registration",
-                    args: { job_registration: frm.doc.name },
-                    callback: function(r) {
-                        if (r.message) {
-                            frappe.msgprint(__("Sales Order {0} created successfully.", [r.message]));
-                            frappe.set_route("Form", "Sales Order", r.message);
+            // Show Create Sales Order button only in Pending or Verified
+            if (
+                !frm.is_new() &&
+                ["Pending", "Verified"].includes(frm.doc.custom_workflow_status)
+            ) {
+                frm.add_custom_button(__('Create Proforma Invoice'), function() {
+                    frappe.call({
+                        method: "alhabbai.alhabbai.doctype.job_registration.job_registration.create_sales_order_from_job_registration",
+                        args: { job_registration: frm.doc.name },
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.msgprint(__("Sales Order {0} created successfully.", [r.message]));
+                                frappe.set_route("Form", "Sales Order", r.message);
+                            }
                         }
-                    }
-                });
-            }, __('Create'));
+                    });
+                }, __('Create'));
+            }
+
         }
 
         // Add Verify button for Verifier role when in Pending state
