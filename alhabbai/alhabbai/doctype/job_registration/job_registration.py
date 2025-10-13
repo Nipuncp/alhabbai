@@ -3,7 +3,9 @@
 
 import frappe
 from frappe.model.document import Document
-
+import json
+from frappe import _
+from erpnext.stock.get_item_details import get_item_tax_map
 
 class JobRegistration(Document):
     def validate(self):
@@ -100,291 +102,177 @@ def get_user_bank_account(user):
 
 
 
+# alhabbai/alhabbai/doctype/job_registration/job_registration.py
+
+
 @frappe.whitelist()
-def create_sales_order_from_job_registration(job_registration):
-    """
-    Create a Sales Order from a Job Registration document.
-    Directly applies the UAE VAT 5% tax template and sets advance_paid from Job Registration.
-    Handles both referral discount (custom_discount_amount) and company discount (custom_company_discount).
-    """
-    # Retrieve the Job Registration document
+def create_sales_order_from_job_registration(job_registration: str):
     jr = frappe.get_doc("Job Registration", job_registration)
     if not jr:
-        frappe.throw("Job Registration not found.")
-    
-    # Ensure the Job Registration has a customer defined
+        frappe.throw(_("Job Registration {0} not found").format(job_registration))
     if not jr.customer:
-        frappe.throw("Customer is not specified in the Job Registration.")
+        frappe.throw(_("Customer is required on Job Registration"))
 
-    # Calculate total discount amount (handling both referral and company discounts)
-    total_discount_amount = 0
-    
-    # Debug information
-    # frappe.msgprint(f"DEBUG - Document attributes: {dir(jr)}")
-    
-    # Try different possible field names for company discount
-    company_discount_field_names = [
-        'custom_company_discount', 
-        'company_discount',
-        'company_discount_amount'
-    ]
-    
-    referral_discount_field_names = [
-        'custom_discount_amount',
-        'discount_amount',
-        'referral_discount'
-    ]
-    
-    # Process referral discount
-    referral_discount = 0
-    for field_name in referral_discount_field_names:
-        try:
-            if hasattr(jr, field_name) and getattr(jr, field_name):
-                value = getattr(jr, field_name)
-                frappe.msgprint(f"DEBUG - Found referral discount field '{field_name}' with value: {value}")
-                
-                if isinstance(value, str) and value.strip():
-                    referral_discount = float(value)
-                elif isinstance(value, (int, float)):
-                    referral_discount = float(value)
-                
-                frappe.msgprint(f"Applied referral discount of {referral_discount} from field '{field_name}'")
-                total_discount_amount += referral_discount
-                break
-        except Exception as e:
-            frappe.msgprint(f"Warning: Error processing field '{field_name}': {str(e)}")
-    
-    # Process company discount
-    company_discount = 0
-    for field_name in company_discount_field_names:
-        try:
-            if hasattr(jr, field_name) and getattr(jr, field_name):
-                value = getattr(jr, field_name)
-                frappe.msgprint(f"DEBUG - Found company discount field '{field_name}' with value: {value}")
-                
-                if isinstance(value, str) and value.strip():
-                    company_discount = float(value)
-                elif isinstance(value, (int, float)):
-                    company_discount = float(value)
-                
-                frappe.msgprint(f"Applied company discount of {company_discount} from field '{field_name}'")
-                total_discount_amount += company_discount
-                break
-        except Exception as e:
-            frappe.msgprint(f"Warning: Error processing field '{field_name}': {str(e)}")
-    
-    # Try to access directly using get method which might work better with custom fields
-    if company_discount == 0:
-        try:
-            for field_name in company_discount_field_names:
-                value = jr.get(field_name)
-                if value:
-                    frappe.msgprint(f"DEBUG - Found company discount using get() for '{field_name}': {value}")
-                    if isinstance(value, str) and value.strip():
-                        company_discount = float(value)
-                    elif isinstance(value, (int, float)):
-                        company_discount = float(value)
-                    
-                    frappe.msgprint(f"Applied company discount of {company_discount} from get('{field_name}')")
-                    total_discount_amount += company_discount
-                    break
-        except Exception as e:
-            frappe.msgprint(f"Warning: Error using get() method for company discount: {str(e)}")
-    
-    frappe.msgprint(f"DEBUG - Final total discount amount: {total_discount_amount}")
-    
-    # Get advance payment amount from Job Registration
-    advance_payment = 0
-    if hasattr(jr, 'advance_payment') and jr.advance_payment:
-        try:
-            if isinstance(jr.advance_payment, str) and jr.advance_payment.strip():
-                advance_payment = float(jr.advance_payment)
-            elif isinstance(jr.advance_payment, (int, float)):
-                advance_payment = float(jr.advance_payment)
-        except Exception as e:
-            frappe.msgprint(f"Warning: Error processing advance payment: {str(e)}. Setting to 0.")
-    
-    # Create the Sales Order document
+    company = frappe.defaults.get_defaults().company
+    currency = frappe.get_cached_value("Company", company, "default_currency")
+
+    # --- Initialize Sales Order
     so = frappe.new_doc("Sales Order")
     so.customer = jr.customer
+    so.company = company
+    # Copy candidate or other custom fields from Job Registration
+    if frappe.get_meta("Sales Order").has_field("custom_candidate") and jr.get("custom_candidate"):
+        so.custom_candidate = jr.custom_candidate
+        so.custom_branch = jr.custom_branch
+
     so.transaction_date = frappe.utils.today()
     so.delivery_date = frappe.utils.today()
-    so.company = frappe.defaults.get_defaults().company
-    
-    # Set job_registration reference if you have a custom field for it
+    so.taxes_and_charges = None  # we will compute our own taxes
+
+    # optional link back
     if frappe.get_meta("Sales Order").has_field("job_registration"):
         so.job_registration = jr.name
-    
-    # Add items from the Job Registration
-    for child in jr.service_package:
+
+    # set currencies and price list
+    so.selling_price_list = "Standard Selling"
+    so.currency = currency
+    so.price_list_currency = currency
+    so.conversion_rate = 1.0
+    so.plc_conversion_rate = 1.0
+
+    frappe.msgprint(f"[DEBUG] Creating SO from JR {jr.name} for {jr.customer}")
+
+    added = 0
+    for row in (jr.service_package or []):
+        item_code = row.service_package_item
+        rate = float(row.amount or 0)
+        if not item_code:
+            continue
+
+        item_doc = frappe.get_doc("Item", item_code)
+        tax_template, tax_rate_map = None, {}
+
+        if getattr(item_doc, "taxes", None) and item_doc.taxes:
+            tax_template = item_doc.taxes[0].item_tax_template
+            if tax_template:
+                raw = get_item_tax_map(company, tax_template)
+                tax_rate_map = frappe.parse_json(raw) if isinstance(raw, str) else (raw or {})
+
+        frappe.msgprint(f"[DEBUG] Item: {item_code} | Rate: {rate} | Template: {tax_template or '—'} | Map: {json.dumps(tax_rate_map)}")
+
         so.append("items", {
-            "item_code": child.service_package_item,
+            "item_code": item_code,
+            "item_name": item_doc.item_name or item_code,
+            "description": item_doc.description or item_code,
+            "uom": item_doc.stock_uom or "Nos",
+            "stock_uom": item_doc.stock_uom or "Nos",
             "qty": 1,
-            "rate": child.amount
+            "rate": rate,
+            "amount": rate,
+            "item_tax_template": tax_template,
+            "item_tax_rate": json.dumps(tax_rate_map),
+            "tax_amount": 0.0,
+            "cost_center": "Main - AH"
         })
-    
-    # # Directly set the UAE VAT 5% tax template
-    # so.taxes_and_charges = "UAE VAT 5% - AH"
-    
-    # # Apply total discount directly to the sales order
-    # if total_discount_amount > 0:
-    #     so.apply_discount_on = "Grand Total"
-    #     so.discount_amount = total_discount_amount
-    #     frappe.msgprint(f"Applying total discount of {total_discount_amount}")
-    
-    # # Set advance_paid if it's a valid field in Sales Order
-    # if frappe.get_meta("Sales Order").has_field("advance_paid"):
-    #     so.advance_paid = advance_payment
-    #     frappe.msgprint(f"Setting advance paid amount: {advance_payment}")
-    # elif advance_payment > 0:
-    #     frappe.msgprint(f"Note: Advance payment of {advance_payment} exists but could not be set in Sales Order (field not found)")
-    
-    # # Save the sales order
-    # so.insert(ignore_permissions=True)
-    
-    # # Now fetch the saved document to apply taxes from template
-    # so = frappe.get_doc("Sales Order", so.name)
-    
-    # # Load the taxes - manual approach since append_taxes_from_template() isn't available
-    # if so.taxes_and_charges:
-    #     # Get tax template
-    #     tax_template = frappe.get_doc("Sales Taxes and Charges Template", so.taxes_and_charges)
-        
-    #     # Clear existing taxes if any
-    #     so.taxes = []
-        
-    #     # Add taxes from template
-    #     for tax in tax_template.taxes:
-    #         so.append("taxes", {
-    #             "charge_type": tax.charge_type,
-    #             "account_head": tax.account_head,
-    #             "description": tax.description,
-    #             "rate": tax.rate,
-    #             "included_in_print_rate": tax.included_in_print_rate
-    #         })
-    
-    # # Calculate taxes and totals
-    # so.calculate_taxes_and_totals()
-    # Add debug logging before tax calculation
-    so.insert(ignore_permissions=True)
-    frappe.logger().info(f"Before calculate_taxes_and_totals:")
-    for item in so.items:
-        frappe.logger().info(f"Item: {item.item_code}, Tax Template: {item.item_tax_template}, Tax Rate: {item.item_tax_rate}")
-    
-    so.calculate_taxes_and_totals()
+        added += 1
 
-    # Add debug logging after tax calculation  
-    frappe.logger().info(f"After calculate_taxes_and_totals:")
-    for item in so.items:
-        frappe.logger().info(f"Item: {item.item_code}, Tax Rate: {item.tax_rate}, Tax Amount: {item.tax_amount}")
+    if not added:
+        frappe.throw(_("No service items found on Job Registration {0}.").format(jr.name))
 
-    
-    so.save()
-    
-    frappe.msgprint(f"Sales Order {so.name} created successfully with UAE VAT 5% tax template applied.")
-    
+    # --- Calculate custom taxes
+    tax_summary = {}
+    for it in so.items:
+        it.tax_amount = 0.0
+        rate_map = frappe.parse_json(it.item_tax_rate) if it.item_tax_rate else {}
+
+        for acc, r in rate_map.items():
+            r = float(r or 0)
+            if r <= 0:
+                frappe.msgprint(f"[DEBUG] ⏭️ Skipping zero-rate: {it.item_code} → {acc} @ {r}%")
+                continue
+
+            amt = round(float(it.rate) * (r / 100.0), 2)
+            it.tax_amount += amt
+            tax_summary.setdefault(acc, 0.0)
+            tax_summary[acc] += amt
+            frappe.msgprint(f"[DEBUG] ✅ {it.item_code} → {acc} @ {r}% = {amt}")
+
+    # --- Totals
+    so.total = sum(float(it.amount or 0) for it in so.items)
+    so.total_taxes_and_charges = sum(float(v) for v in tax_summary.values())
+    so.grand_total = so.total + so.total_taxes_and_charges
+
+    # --- Discounts and Advances
+    jr_discount = float(jr.get("custom_discount_amount") or 0)
+    if jr_discount:
+        so.apply_discount_on = "Grand Total"
+        so.discount_amount = jr_discount
+        so.grand_total = max(0, so.grand_total - jr_discount)
+        frappe.msgprint(f"[DEBUG] Applied JR discount: {jr_discount}")
+
+    jr_advance = float(jr.get("advance_payment") or 0)
+    if jr_advance:
+        if frappe.get_meta("Sales Order").has_field("custom_advance_payment_amount"):
+            so.custom_advance_payment_amount = jr_advance
+        if frappe.get_meta("Sales Order").has_field("advance_paid"):
+            so.advance_paid = jr_advance
+        frappe.msgprint(f"[DEBUG] Carried forward advance payment: {jr_advance}")
+
+    # --- Tax Table
+    so.taxes = []
+    for acc, amt in tax_summary.items():
+        derived_rate = 0.0
+        for it in so.items:
+            rate_map = frappe.parse_json(it.item_tax_rate) if it.item_tax_rate else {}
+            if acc in rate_map:
+                derived_rate = float(rate_map[acc] or 0.0)
+                break
+
+        so.append("taxes", {
+            "charge_type": "On Net Total",
+            "account_head": acc,
+            "rate": derived_rate,
+            "tax_amount": round(amt, 2),
+            "description": f"{acc} @ {derived_rate}%",
+            "cost_center": "Main - AH",
+            "dont_recompute_tax": 1
+        })
+
+    # --- Save safely (prevent ERPNext override)
+    so.flags.ignore_validate = True
+    so.flags.ignore_mandatory = True
+    so.flags.ignore_links = True
+    so.flags.ignore_validate_update_after_save = True
+
+    so.insert(ignore_permissions=True, ignore_links=True)
+
+    # Freeze totals to prevent recalculation
+    for tax in so.taxes:
+        tax.db_set("dont_recompute_tax", 1)
+
+    so.db_set("taxes_and_charges", None)
+    so.db_set("total", round(so.total, 2))
+    so.db_set("total_taxes_and_charges", round(so.total_taxes_and_charges, 2))
+    so.db_set("grand_total", round(so.grand_total, 2))
+
+    # --- Output summary
+    summary = [
+        f"[RESULT] SO: {so.name}",
+        f"[RESULT] Subtotal: {frappe.utils.fmt_money(so.total, currency=currency)}",
+        f"[RESULT] Taxes: {frappe.utils.fmt_money(so.total_taxes_and_charges, currency=currency)}",
+        f"[RESULT] Discount: {frappe.utils.fmt_money(jr_discount, currency=currency)}",
+        f"[RESULT] Grand Total: {frappe.utils.fmt_money(so.grand_total, currency=currency)}",
+    ]
+    if jr_advance:
+        summary.append(f"[RESULT] Advance: {frappe.utils.fmt_money(jr_advance, currency=currency)}")
+
+    frappe.msgprint("<br>".join(summary), title=_("Sales Order Created"), wide=True)
     return so.name
-    
-@frappe.whitelist()
-def create_government_purchase_invoice(job_registration, amount=None):
-    """Create a Purchase Invoice for government fees and make payment from prepaid card"""
-    try:
-        # Verify that the Job Registration exists
-        if not frappe.db.exists("Job Registration", job_registration):
-            frappe.msgprint(f"Job Registration {job_registration} not found")
-            return "Error: Job Registration not found"
-        
-        # Check if PI already exists
-        existing_pi = frappe.get_all(
-            "Purchase Invoice",
-            filters={
-                "custom_job_registration": job_registration,
-                "docstatus": ["!=", 2]
-            }
-        )
-        
-        frappe.logger().info(f"Found job registration: {job_registration}")
-        if existing_pi:
-            return existing_pi[0].name
-            
-        # Get the bank account for current user's prepaid card
-        current_user = frappe.session.user
-        bank_account = get_user_bank_account(current_user)
-        
-        if not bank_account:
-            frappe.throw("No active prepaid card bank account assigned to current user")
-            
-        # Get job registration doc
-        jr = frappe.get_doc("Job Registration", job_registration)
-        
-        # Fetch price from Standard Buying price list if amount is not provided
-        if not amount or float(amount) <= 0:
-            # Try to get the price from Standard Buying price list
-            item_price = frappe.get_all(
-                "Item Price",
-                filters={
-                    "item_code": "Government Fees",
-                    "price_list": "Standard Buying",
-                    "buying": 1
-                },
-                fields=["price_list_rate"],
-                order_by="modified desc",
-                limit=1
-            )
-            
-            if item_price and item_price[0].price_list_rate:
-                amount = item_price[0].price_list_rate
-                frappe.logger().info(f"Found price in Standard Buying price list: {amount}")
-            else:
-                # Fallback to default amount if no price found
-                amount = 100
-                frappe.logger().info(f"No price found in price list, using default: {amount}")
-        else:
-            # Convert amount to float if it's provided as a string
-            amount = float(amount)
 
-        # Create Purchase Invoice
-        pi = frappe.new_doc("Purchase Invoice")
-        pi.supplier = "Government"
-        pi.posting_date = frappe.utils.today()
-        pi.due_date = frappe.utils.today()
-        pi.buying_price_list = "Standard Buying"
-        pi.company = frappe.defaults.get_defaults().company
-        pi.is_paid = 1
-        pi.mode_of_payment = "Government Prepaid Card"
-        pi.cash_bank_account = bank_account
-        
-        # Link to job registration using custom field
-        pi.custom_job_registration = job_registration
 
-        # Add item for Government Fees
-        pi.append("items", {
-            "item_code": "Government Fees",
-            "qty": 1,
-            "rate": amount,
-            "amount": amount,
-            "expense_account": "Government Charges - AH"
-        })
 
-        # Insert the invoice (which calculates totals, etc.)
-        pi.insert(ignore_permissions=True)
-        
-        # Set payment details
-        pi.paid_amount = pi.grand_total
-        pi.outstanding_amount = 0
-        
-        # Save changes and submit
-        pi.save()
-        pi.submit()
 
-        frappe.msgprint(f"Purchase Invoice {pi.name} created and marked as paid with amount {amount}")
-        return pi.name
 
-    except Exception as e:
-        error_msg = f"Error in create_government_purchase_invoice: {str(e)}"
-        frappe.log_error(error_msg)
-        frappe.msgprint(error_msg)
-        raise
 
 
 @frappe.whitelist()

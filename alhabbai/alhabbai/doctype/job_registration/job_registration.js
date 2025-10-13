@@ -1,4 +1,47 @@
 // Job Registration custom workflow - WORKING VERSION
+// Job Registration - Candidate filter logic
+// Job Registration - Candidate filter logic using 'custom_candidate'
+frappe.ui.form.on('Job Registration', {
+    onload: function(frm) {
+        // Hide candidate field if no customer
+        frm.toggle_display('custom_candidate', !!frm.doc.customer);
+
+        // Apply filter if customer already exists
+        if (frm.doc.customer) {
+            set_custom_candidate_query(frm);
+        }
+    },
+
+    customer: function(frm) {
+        console.log("🔍 Customer changed:", frm.doc.customer);
+
+        if (frm.doc.customer) {
+            // Show candidate only when customer is chosen
+            frm.toggle_display('custom_candidate', true);
+            frm.set_value('custom_candidate', ''); // clear previous candidate
+            set_custom_candidate_query(frm);
+        } else {
+            // Hide and clear candidate when customer is cleared
+            frm.toggle_display('custom_candidate', false);
+            frm.set_value('custom_candidate', '');
+        }
+    }
+});
+
+// Function to apply filter to custom_candidate field
+function set_custom_candidate_query(frm) {
+    frm.set_query('custom_candidate', function() {
+        return {
+            filters: {
+                customer: frm.doc.customer,
+                docstatus: 1   // ✅ show only submitted candidates
+            }
+        };
+    });
+}
+
+
+
 frappe.ui.form.on('Job Registration', {
     refresh: function(frm) {
         console.log("🔍 DEBUG: Refresh triggered, docstatus =", frm.doc.docstatus);

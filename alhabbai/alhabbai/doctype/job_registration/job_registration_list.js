@@ -1,5 +1,7 @@
 frappe.listview_settings['Job Registration'] = {
+    add_fields: ["custom_workflow_status"],
     onload: function(listview) {
+        
         const isReceptionist = frappe.user.has_role('Receptionist');
         const isTypist = frappe.user.has_role('Typist');
         const isVerifier = frappe.user.has_role('Verifier');

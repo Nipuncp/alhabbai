@@ -31,7 +31,6 @@
   "is_virtual": 0,
   "label": "Candidate",
   "length": 0,
-  "link_filters": "[[\"Candidate\",\"customer\",\"=\",\"doc.customer\"]]",
   "mandatory_depends_on": null,
   "modified": "2025-06-23 07:54:37.290472",
   "module": null,
