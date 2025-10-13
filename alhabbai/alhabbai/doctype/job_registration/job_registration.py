@@ -232,6 +232,7 @@ def create_sales_order_from_job_registration(job_registration: str):
             "charge_type": "On Net Total",
             "account_head": acc,
             "rate": derived_rate,
+            "delivery_date": frappe.utils.nowdate(),
             "tax_amount": round(amt, 2),
             "description": f"{acc} @ {derived_rate}%",
             "cost_center": "Main - AH",
