@@ -7,80 +7,94 @@ import json
 from frappe import _
 from erpnext.stock.get_item_details import get_item_tax_map
 
+
 class JobRegistration(Document):
     def validate(self):
-        """
-        Validate the document during save.
-        Implement custom workflow state transitions.
-        """
-        # If submitting, ensure custom_workflow_status is "Verified"
-        if self.flags.in_submit or (self.docstatus == 0 and self.__dict__.get('__submit', False)):
-            self.custom_workflow_status = "Verified"
-            return  # Skip other validations when submitting
-        
-        # Initialize custom_workflow_status if not set
+        """Control workflow transitions automatically"""
+        # Default initial state
         if not self.custom_workflow_status:
             self.custom_workflow_status = "Draft"
-            
-        # Check child table entries to determine if status should be Pending
-        self.check_child_table_entries()
-            
-        # Validate workflow transitions
-        self.validate_workflow_transitions()
-    
-    
+
+        # Draft ↔ Pending logic
+        # self.check_child_table_entries()
+
+        # Validate allowed actions
+        self.validate_role_access()
+
     def check_child_table_entries(self):
-        """
-        Check if there are entries in Documents (table_tujy) and update workflow status accordingly.
-        Only applies when document is in Draft state.
-        """
-        if self.custom_workflow_status == "Draft" and not self.docstatus:
-            has_document_entries = bool(getattr(self, 'table_tujy', []))
-            
-            if has_document_entries:
-                self.custom_workflow_status = "Pending"
-                 # Remove PI creation from here since it's handled in JS
-                frappe.msgprint("Status changed to Pending")
-
-
-    def validate_role_access(self):
-        current_user = frappe.session.user
-        user_roles = frappe.get_roles(current_user)
-
-        # Allow Administrator to do anything
-        if "Administrator" in user_roles:
+        """If documents exist → Pending; if none → Draft"""
+        if self.docstatus:
             return
 
-        status = self.custom_workflow_status
+        has_documents = bool(getattr(self, "table_tujy", []))
+        if has_documents and self.custom_workflow_status == "Draft":
+            self.custom_workflow_status = "Pending"
+        elif not has_documents and self.custom_workflow_status == "Pending":
+            self.custom_workflow_status = "Draft"
 
-        if status == "Draft":
-            if "Receptionist" not in user_roles:
-                frappe.throw("Only a Receptionist can work on a Job Registration in Draft status.")
-        
-        elif status == "Pending":
-            if "Typist" not in user_roles and "Receptionist" not in user_roles:
-                frappe.throw("Only a Typist or Receptionist can work on a Job Registration in Pending status.")
+    def validate_role_access(self):
+        """Ensure only correct roles can act depending on workflow status"""
+        user = frappe.session.user
+        roles = frappe.get_roles(user)
 
-        elif status == "Verified":
-            if "Verifier" not in user_roles:
-                frappe.throw("Only a Verifier can work on a Job Registration in Verified status.")
+        if user == "Administrator":
+            return
+
+        state = self.custom_workflow_status or "Draft"
+
+        if state == "Draft" and "Receptionist" not in roles:
+            frappe.throw("Only Receptionist can create or edit Draft Job Registrations.")
+
+        elif state == "Pending" and not any(r in roles for r in ["Receptionist", "Typist", "Verifier"]):
+            frappe.throw("Only Typist, Receptionist, or Verifier can work on Pending Job Registrations.")
+
+        elif state == "Verified" and "Verifier" not in roles:
+            frappe.throw("Only Verifier can modify or submit Verified Job Registrations.")
+
+    def before_submit(self):
+        """Allow only Verifier to submit Verified records"""
+        user = frappe.session.user
+        roles = frappe.get_roles(user)
+        if self.custom_workflow_status != "Verified":
+            frappe.throw(_("You can only submit after verification."))
+        if "Verifier" not in roles and user != "Administrator":
+            frappe.throw(_("Only Verifier can submit this document."))
 
 
+# -----------------------------------------------------------------
+# Action triggered by Verifier button to Verify + create Sales Order
+# -----------------------------------------------------------------
 
-    
-    def validate_workflow_transitions(self):
-        """
-        Validate that workflow transitions are valid
-        """
-        # Only allow submit if document is in Verified state
-        if self.docstatus == 1 and self.custom_workflow_status != "Verified":
-            # If submitting through API, auto-set to Verified instead of throwing error
-            self.custom_workflow_status = "Verified"
-    
-    # Remove creation from on_submit since it's now handled in check_child_table_entries
-    def on_submit(self):
-        """Handler for document submission"""
-        pass
+@frappe.whitelist()
+def verify_and_create_proforma(job_registration):
+    """Verifier action: mark Verified, submit, and create linked Sales Order"""
+    jr = frappe.get_doc("Job Registration", job_registration)
+    user = frappe.session.user
+    roles = frappe.get_roles(user)
+
+    # ✅ Only Verifier (or Administrator) can perform this
+    if "Verifier" not in roles and user != "Administrator":
+        frappe.throw("Only Verifier can perform this action.")
+
+    # --- Update workflow flag
+    jr.custom_workflow_status = "Verified"
+    jr.flags.ignore_validate = True
+    jr.save(ignore_permissions=True)
+
+    # --- Submit document directly (no second button click needed)
+    try:
+        jr.submit()
+        frappe.msgprint("✅ Job Registration verified and submitted successfully.")
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "JobRegistration Auto-Submit Failed")
+        frappe.throw(f"Error while submitting Job Registration: {str(e)}")
+
+    # --- Create Sales Order (Proforma)
+    so_name = create_sales_order_from_job_registration(job_registration)
+
+    frappe.msgprint(f"📄 Proforma (Sales Order) <b>{so_name}</b> created successfully.", title="Verification Complete", wide=True)
+    return so_name
+
 
 
 def get_user_bank_account(user):
@@ -359,3 +373,87 @@ def get_service_package_group_discount(customer, service_package_group):
             return float(discount_row.discount) if discount_row.discount else 0
     
     return 0
+
+
+@frappe.whitelist()
+def create_government_purchase_invoice(job_registration, amount=None):
+    """Create a Purchase Invoice for government fees"""
+    try:
+        # Check if PI already exists
+        existing_pi = frappe.get_all(
+            "Purchase Invoice",
+            filters={
+                "custom_job_registration": job_registration,  # Changed field name
+                "docstatus": ["!=", 2]
+            }
+        )
+
+        if existing_pi:
+            return existing_pi[0].name
+
+        # Get the bank account for current user's prepaid card
+        current_user = frappe.session.user
+        bank_account = get_user_bank_account(current_user)
+
+        if not bank_account:
+            frappe.throw("No active prepaid card bank account assigned to current user")
+
+        # Get job registration doc
+        jr = frappe.get_doc("Job Registration", job_registration)
+
+        # Get price from Standard Buying price list
+        government_fees_price = frappe.get_all(
+            "Item Price",
+            filters={
+                "item_code": "Government Fees",
+                "price_list": "Standard Buying",
+                "buying": 1
+            },
+            fields=["price_list_rate"],
+            order_by="valid_from desc",
+            limit=1
+        )
+
+        if not government_fees_price:
+            frappe.throw("No price found for Government Fees in Standard Buying price list")
+
+        service_amount = government_fees_price[0].price_list_rate
+
+        # Create Purchase Invoice
+        pi = frappe.new_doc("Purchase Invoice")
+        pi.posting_date = frappe.utils.today()
+        pi.supplier = "Government"
+        pi.company = frappe.defaults.get_defaults().company
+        pi.is_paid = 1
+        pi.mode_of_payment = "Government Prepaid Card"
+        pi.cash_bank_account = bank_account
+        pi.price_list = "Standard Buying"
+
+        # Add item with price from price list
+        pi.append("items", {
+            "item_code": "Government Fees",
+            "qty": 1,
+            "rate": service_amount,
+            "amount": service_amount
+        })
+
+        # Set totals
+        pi.total = service_amount
+        pi.grand_total = service_amount
+        pi.rounded_total = service_amount
+
+        # Link to job registration using custom field
+        pi.custom_job_registration = job_registration
+
+        # Save and submit
+        pi.insert(ignore_permissions=True)
+        pi.submit()
+
+        # frappe.msgprint(
+        #     f"Purchase Invoice created with amount {service_amount} from Standard Buying price list"
+        # )
+        return pi.name
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "JobRegistration: create_government_purchase_invoice failed")
+        frappe.throw(f"Error while creating Purchase Invoice: {str(e)}")
