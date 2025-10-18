@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 fixtures = [
-    # Export all 3 custom fields
+    # Export all custom fields used in Customer, Job Registration, and Sales Order
     {
         "dt": "Custom Field",
         "filters": [
@@ -27,14 +27,13 @@ fixtures = [
                 "Sales Order-custom_payment_status",
                 "Sales Order-payment_status_column_break",
                 "Sales Order-custom_payment_entry",
-                "Sales Order-custom_collect_payment_button"
+                "Sales Order-custom_collect_payment_button",
+                "Sales Order-custom_job_registration"   # ✅ Added new link field
             ]]
         ]
     },
-       
 
-    
-    # Export property setters for Customer fields
+    # Export property setters for all relevant doctypes
     {
         "dt": "Property Setter",
         "filters": [
@@ -42,8 +41,8 @@ fixtures = [
             ["field_name", "like", "custom_%"]
         ]
     },
-    
-    # Export property setters for Job Registration fields
+
+    # Export specific property setters for Job Registration fields (safe redundancy)
     {
         "dt": "Property Setter",
         "filters": [
@@ -51,7 +50,6 @@ fixtures = [
             ["field_name", "=", "custom_candidate"]
         ]
     },
-
 ]
 
 doctype_js = {
