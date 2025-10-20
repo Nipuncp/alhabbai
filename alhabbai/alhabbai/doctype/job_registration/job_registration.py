@@ -9,6 +9,43 @@ from erpnext.stock.get_item_details import get_item_tax_map
 from frappe.utils import flt, today 
 
 class JobRegistration(Document):
+
+    import frappe
+from frappe.model.document import Document
+from frappe.model.naming import make_autoname
+from frappe.utils import getdate
+
+class JobRegistration(Document):
+    
+    def autoname(self):
+        """Auto-generate Job Registration name:
+        Format: JOB-{BranchCode}-{YY}-{######}
+        Example: JOB-ALNDXB-25-000001
+        """
+        try:
+            # ✅ Get Branch Code
+            branch_code = None
+            if getattr(self, "custom_branch", None):
+                branch_code = frappe.db.get_value(
+                    "Branch",
+                    self.custom_branch,
+                    "custom_branch_code"
+                )
+
+            if not branch_code:
+                branch_code = "GEN"  # fallback if branch missing
+
+            # ✅ Two-digit year
+            year = str(getdate().year)[-2:]
+
+            # ✅ Generate name
+            self.name = make_autoname(f"JOB-{branch_code}-{year}-.######")
+
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(), "JobRegistration autoname failed")
+            self.name = make_autoname("JOB-GEN-.######")
+
+
     def validate(self):
         """Control workflow transitions automatically"""
         # Default initial state
