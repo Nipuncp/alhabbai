@@ -321,6 +321,8 @@ def create_sales_order_from_job_registration(job_registration: str):
             "custom_job_registration": jr.name,
             "custom_candidate": getattr(jr, "custom_candidate", None),
             "custom_branch": getattr(jr, "custom_branch", None),
+            "custom_advance_payment_amount":  flt(jr.advance_payment or 0)
+
         })
 
         # ---- Add Items ----
@@ -367,7 +369,8 @@ def create_sales_order_from_job_registration(job_registration: str):
         # ---- Save as Draft (no submit) ----
         so.insert(ignore_permissions=True)
         frappe.msgprint(f"📄 Draft Sales Order <b>{so.name}</b> created successfully.")
-
+        # pe_name = create_payment_entry_from_job_registration(job_registration)
+        # frappe.msgprint(f"Payment Entry {pe_name} created and pending link.")
         return so.name
 
     except frappe.DuplicateEntryError:
@@ -388,26 +391,52 @@ def create_sales_order_from_job_registration(job_registration: str):
 
 
 
-def create_payment_entry_for_sales_order(so_name, customer, company, amount):
-    from frappe.utils import today
+@frappe.whitelist()
+def create_payment_entry_from_job_registration(job_registration):
+    jr = frappe.get_doc("Job Registration", job_registration)
+
+    if not jr.customer or not jr.advance_payment or jr.advance_payment <= 0:
+        frappe.msgprint("No advance payment to create Payment Entry.")
+        return
+
+    # Check if already created
+    existing = frappe.get_all(
+        "Payment Entry",
+        filters={"reference_no": jr.name, "docstatus": ["!=", 2]},
+        pluck="name"
+    )
+    if existing:
+        return existing[0]
+
+    # Create Payment Entry
     pe = frappe.new_doc("Payment Entry")
     pe.payment_type = "Receive"
-    pe.company = company
     pe.party_type = "Customer"
-    pe.party = customer
-    pe.posting_date = today()
-    pe.mode_of_payment = "Cash"
-    pe.paid_to = frappe.db.get_value("Account", {"account_type": "Cash", "company": company})
-    pe.paid_amount = amount
-    pe.received_amount = amount
-    pe.is_advance = "Yes"
-    pe.append("references", {
-        "reference_doctype": "Sales Order",
-        "reference_name": so_name,
-        "allocated_amount": amount,
-    })
-    pe.insert(ignore_permissions=True)
-    pe.submit()
+    pe.party = jr.customer
+    pe.company = frappe.defaults.get_defaults().company
+    pe.posting_date = frappe.utils.nowdate()
+    pe.paid_amount = jr.advance_payment
+    pe.received_amount = jr.advance_payment
+    pe.mode_of_payment = jr.custom_mode_of_payment or "Cash"
+    pe.reference_no = jr.name
+    pe.reference_date = frappe.utils.nowdate()
+
+    # Add account details
+    default_account = frappe.db.get_value(
+        "Mode of Payment Account",
+        {"parent": pe.mode_of_payment, "company": pe.company},
+        "default_account"
+    )
+    if not default_account:
+        frappe.throw(f"No account found for mode of payment {pe.mode_of_payment}")
+
+    pe.paid_to = default_account
+    pe.save(ignore_permissions=True)
+    # pe.submit()  # optional — submit immediately
+
+    frappe.msgprint(f"💰 Payment Entry {pe.name} created for advance {jr.advance_payment}")
+    return pe.name
+
 
 
 
@@ -591,3 +620,64 @@ def submit_job_registration(name):
     doc.submit()
     return doc.name
 
+
+@frappe.whitelist()
+def link_advance_payment_entry(doc, method):
+    """On Sales Order Submit → Create and link Payment Entry for the advance."""
+    try:
+        if not getattr(doc, "custom_job_registration", None):
+            return
+
+        jr = frappe.get_doc("Job Registration", doc.custom_job_registration)
+        advance_amount = flt(doc.custom_advance_payment_amount or 0)
+
+        if advance_amount <= 0:
+            frappe.msgprint("No advance amount found to create payment entry.")
+            return
+
+        # Check if already exists
+        existing_pe = frappe.db.get_value(
+            "Payment Entry Reference",
+            {"reference_name": doc.name, "reference_doctype": "Sales Order"},
+            "parent"
+        )
+        if existing_pe:
+            frappe.msgprint(f"Payment Entry {existing_pe} already linked.")
+            return
+
+        # Create new Payment Entry
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.posting_date = frappe.utils.today()
+        pe.company = doc.company
+        pe.party_type = "Customer"
+        pe.party = doc.customer
+        pe.mode_of_payment = doc.custom_mode_of_payment or "Cash"
+        pe.reference_no = doc.name
+        pe.reference_date = frappe.utils.today()
+        pe.paid_amount = advance_amount
+        pe.received_amount = advance_amount
+
+        # Accounts
+        pe.paid_from = frappe.db.get_value("Account", {"account_type": "Receivable", "company": doc.company})
+        pe.paid_to = frappe.db.get_value("Account", {"account_type": "Cash", "company": doc.company})
+
+        # Reference
+        pe.append("references", {
+            "reference_doctype": "Sales Order",
+            "reference_name": doc.name,
+            "allocated_amount": advance_amount
+        })
+
+        # Insert and submit
+        pe.insert(ignore_permissions=True)
+        pe.submit()
+
+        frappe.msgprint(f"💰 Payment Entry {pe.name} created and linked for Advance AED {advance_amount}")
+        return pe.name
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "JobRegistration: link_advance_payment_entry failed")
+        frappe.throw(f"Error while creating Payment Entry: {str(e)}")
+
+ 

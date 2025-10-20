@@ -1,236 +1,169 @@
-# File: apps/alhabbai/alhabbai/doctype/sales_order/sales_order.py
-# Sales Order controller extension for payment collection
-
 import frappe
-from frappe import _
-from frappe.utils import flt, today, now
+from frappe.utils import flt, today
 from erpnext.accounts.utils import get_account_currency
 
-@frappe.whitelist()
-def create_advance_payment_entry(sales_order, payment_amount, mode_of_payment, payment_account, reference_no=""):
-    """
-    Create Payment Entry for advance payment against Sales Order
-    This is the main function called by the JavaScript
-    """
+
+# --------------------------------------------------------------------------
+# ON SUBMIT → AUTO PAYMENT ENTRY CREATION
+# --------------------------------------------------------------------------
+def sales_order_on_submit(doc, method):
+    """Automatically create and link Payment Entry when Sales Order is submitted."""
     try:
-        # Get Sales Order document
-        so = frappe.get_doc("Sales Order", sales_order)
-        
-        # Validate payment amount
-        payment_amount = flt(payment_amount)
-        if payment_amount <= 0:
-            frappe.throw(_("Payment amount must be greater than zero"))
-        
-        # Check if payment doesn't exceed outstanding
-        outstanding = flt(so.grand_total) - flt(so.advance_paid)
-        if payment_amount > outstanding:
-            frappe.throw(_("Payment amount cannot exceed outstanding amount of {0}").format(outstanding))
-        
-        # Create Payment Entry
+        advance_amount = flt(doc.custom_advance_payment_amount or 0)
+        if advance_amount <= 0:
+            frappe.msgprint("No advance payment to create Payment Entry.")
+            return
+
+        # Check if already linked
+        existing_pe = frappe.db.get_value(
+            "Payment Entry Reference",
+            {"reference_doctype": "Sales Order", "reference_name": doc.name},
+            "parent"
+        )
+        if existing_pe:
+            frappe.msgprint(f"Payment Entry {existing_pe} already linked.")
+            return existing_pe
+
+        # Create new Payment Entry
         pe = frappe.new_doc("Payment Entry")
-        
-        # Basic details
         pe.payment_type = "Receive"
         pe.party_type = "Customer"
-        pe.party = so.customer
+        pe.party = doc.customer
+        pe.company = doc.company
         pe.posting_date = today()
-        pe.company = so.company
-        
-        # Payment details
-        pe.mode_of_payment = mode_of_payment
-        pe.paid_amount = payment_amount
-        pe.received_amount = payment_amount
-        pe.paid_from = get_party_account("Customer", so.customer, so.company)
-        pe.paid_to = payment_account
-        
-        # Reference details
-        pe.reference_no = reference_no
+        pe.mode_of_payment = doc.custom_mode_of_payment or "Cash"
+        pe.reference_no = doc.name
         pe.reference_date = today()
-        
-        # Set currency details
-        company_currency = frappe.get_cached_value("Company", so.company, "default_currency")
-        pe.paid_from_account_currency = company_currency
-        pe.paid_to_account_currency = get_account_currency(payment_account)
-        
+        pe.paid_amount = advance_amount
+        pe.received_amount = advance_amount
+
+        # Accounts
+        pe.paid_from = frappe.db.get_value(
+            "Account", {"account_type": "Receivable", "company": doc.company}
+        )
+        mop_acc = frappe.db.get_value(
+            "Mode of Payment Account",
+            {"parent": pe.mode_of_payment, "company": doc.company},
+            "default_account",
+        )
+        if not mop_acc:
+            frappe.throw(f"No default account found for mode of payment {pe.mode_of_payment}")
+        pe.paid_to = mop_acc
+
         # Add reference to Sales Order
         pe.append("references", {
             "reference_doctype": "Sales Order",
-            "reference_name": so.name,
-            "allocated_amount": payment_amount
+            "reference_name": doc.name,
+            "allocated_amount": advance_amount,
         })
-        
-        # Insert and submit the payment entry
+
         pe.insert(ignore_permissions=True)
         pe.submit()
-        
-        # Update Sales Order with payment details
-        update_sales_order_payment_status(so, pe, payment_amount)
-        
-        frappe.msgprint(_("Payment Entry {0} created successfully").format(pe.name))
+
+        update_sales_order_payment_status(doc, pe, advance_amount)
+
+        frappe.msgprint(f"💰 Payment Entry {pe.name} created and linked for advance AED {advance_amount}")
         return pe.name
-        
-    except Exception as e:
-        error_msg = f"Error creating payment entry: {str(e)}"
-        frappe.log_error(error_msg)
-        frappe.throw(_(error_msg))
 
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "SalesOrder: Auto Payment Entry Creation Failed")
+        frappe.throw("Failed to create Payment Entry on Sales Order submission.")
+
+
+# --------------------------------------------------------------------------
+# UPDATE PAYMENT STATUS & OUTSTANDING
+# --------------------------------------------------------------------------
 def update_sales_order_payment_status(sales_order, payment_entry, payment_amount):
-    """
-    Update Sales Order with payment information
-    """
+    """Updates Sales Order payment details and outstanding after Payment Entry."""
     try:
-        # Update Sales Order fields using db_set (works even after submit)
-        sales_order.db_set("custom_payment_entry", payment_entry.name)
-        sales_order.db_set("advance_paid", flt(sales_order.advance_paid) + flt(payment_amount))
-        
-        # Calculate outstanding amount
-        outstanding = flt(sales_order.grand_total) - flt(sales_order.advance_paid)
-        sales_order.db_set("custom_outstanding_amount", outstanding)
-        
-        # Update payment status
-        if outstanding <= 0:
-            payment_status = "Fully Paid"
-        elif flt(sales_order.advance_paid) > 0:
-            payment_status = "Partially Paid"
-        else:
-            payment_status = "Pending"
-        
-        sales_order.db_set("custom_payment_status", payment_status)
-        
-        # Clear payment collection fields for next payment
-        sales_order.db_set("custom_advance_payment_amount", 0)
-        sales_order.db_set("custom_payment_reference", "")
-        
+        so = sales_order if isinstance(sales_order, frappe.model.document.Document) else frappe.get_doc("Sales Order", sales_order)
+
+        # Update totals
+        so.db_set("custom_payment_entry", payment_entry.name)
+        so.db_set("advance_paid", flt(so.advance_paid) + flt(payment_amount))
+
+        outstanding = max(0, flt(so.grand_total) - flt(so.advance_paid))
+        so.db_set("custom_outstanding_amount", outstanding)
+
+        # Payment status (custom)
+        custom_status = (
+            "Fully Paid" if outstanding <= 0
+            else "Partially Paid" if flt(so.advance_paid) > 0
+            else "Pending"
+        )
+        so.db_set("custom_payment_status", custom_status)
+
+        # Sync with ERPNext native payment_status
+        native_status = "Paid" if custom_status == "Fully Paid" else "Partly Paid" if custom_status == "Partially Paid" else "Unpaid"
+        so.db_set("payment_status", native_status)
+
         frappe.db.commit()
-        
-        frappe.msgprint(_("Sales Order payment status updated successfully"))
-        
-    except Exception as e:
-        error_msg = f"Error updating sales order payment status: {str(e)}"
-        frappe.log_error(error_msg)
+        return True
 
-def get_party_account(party_type, party, company):
-    """
-    Get party account for payment entry
-    """
-    if party_type == "Customer":
-        return frappe.get_cached_value("Company", company, "default_receivable_account")
-    elif party_type == "Supplier":
-        return frappe.get_cached_value("Company", company, "default_payable_account")
-    return None
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "SalesOrder: update_sales_order_payment_status failed")
 
-@frappe.whitelist()
+
+# --------------------------------------------------------------------------
+# CANCEL PAYMENT ENTRY
+# --------------------------------------------------------------------------
 def cancel_payment_entry(sales_order, payment_entry):
-    """
-    Cancel payment entry and update sales order
-    """
+    """Cancel linked Payment Entry and update Sales Order outstanding accordingly."""
     try:
-        # Cancel payment entry
         pe = frappe.get_doc("Payment Entry", payment_entry)
         if pe.docstatus == 1:
             pe.cancel()
-        
-        # Update sales order
-        so = frappe.get_doc("Sales Order", sales_order)
-        
-        # Find the amount that was paid
-        paid_amount = 0
-        for ref in pe.references:
-            if ref.reference_doctype == "Sales Order" and ref.reference_name == sales_order:
-                paid_amount = ref.allocated_amount
-                break
-        
-        # Update sales order fields
-        so.db_set("custom_payment_entry", "")
-        so.db_set("advance_paid", flt(so.advance_paid) - flt(paid_amount))
-        
-        # Recalculate outstanding and status
-        outstanding = flt(so.grand_total) - flt(so.advance_paid)
-        so.db_set("custom_outstanding_amount", outstanding)
-        
-        if flt(so.advance_paid) <= 0:
-            so.db_set("custom_payment_status", "Pending")
-        else:
-            so.db_set("custom_payment_status", "Partially Paid")
-        
-        frappe.db.commit()
-        return True
-        
-    except Exception as e:
-        error_msg = f"Error canceling payment entry: {str(e)}"
-        frappe.log_error(error_msg)
-        frappe.throw(_(error_msg))
 
-# Hooks for automatic calculation
-def sales_order_on_update_after_submit(doc, method):
-    """
-    Hook to run after Sales Order is updated after submit
-    """
-    calculate_outstanding_amount(doc)
+        so = frappe.get_doc("Sales Order", sales_order)
+        paid_amount = next(
+            (ref.allocated_amount for ref in pe.references
+             if ref.reference_doctype == "Sales Order" and ref.reference_name == sales_order),
+            0,
+        )
+
+        so.db_set("advance_paid", flt(so.advance_paid) - flt(paid_amount))
+        outstanding = max(0, flt(so.grand_total) - flt(so.advance_paid))
+        so.db_set("custom_outstanding_amount", outstanding)
+        custom_status = "Pending" if so.advance_paid <= 0 else "Partially Paid"
+        so.db_set("custom_payment_status", custom_status)
+        so.db_set("payment_status", "Unpaid" if so.advance_paid <= 0 else "Partly Paid")
+
+        frappe.db.commit()
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "SalesOrder: cancel_payment_entry failed")
+
+
+# --------------------------------------------------------------------------
+# DYNAMIC CALCULATORS
+# --------------------------------------------------------------------------
+def calculate_outstanding_amount(doc):
+    """Recalculate outstanding & payment status for live updates."""
+    if hasattr(doc, "grand_total") and hasattr(doc, "advance_paid"):
+        outstanding = max(0, flt(doc.grand_total) - flt(doc.advance_paid))
+        if hasattr(doc, "custom_outstanding_amount"):
+            doc.custom_outstanding_amount = outstanding
+
+        custom_status = (
+            "Fully Paid" if outstanding <= 0
+            else "Partially Paid" if flt(doc.advance_paid) > 0
+            else "Pending"
+        )
+        if hasattr(doc, "custom_payment_status"):
+            doc.custom_payment_status = custom_status
+
+        # Sync native field
+        if hasattr(doc, "payment_status"):
+            doc.payment_status = (
+                "Paid" if custom_status == "Fully Paid"
+                else "Partly Paid" if custom_status == "Partially Paid"
+                else "Unpaid"
+            )
+
 
 def sales_order_before_save(doc, method):
-    """
-    Hook to run before Sales Order is saved
-    """
     calculate_outstanding_amount(doc)
 
-def calculate_outstanding_amount(doc):
-    """
-    Calculate and set outstanding amount in Sales Order
-    """
-    if hasattr(doc, 'grand_total') and hasattr(doc, 'advance_paid'):
-        outstanding = flt(doc.grand_total) - flt(doc.advance_paid)
-        outstanding = max(0, outstanding)
-        
-        # Set outstanding amount
-        if hasattr(doc, 'custom_outstanding_amount'):
-            doc.custom_outstanding_amount = outstanding
-        
-        # Set payment status
-        if hasattr(doc, 'custom_payment_status'):
-            if outstanding <= 0:
-                doc.custom_payment_status = "Fully Paid"
-            elif flt(doc.advance_paid) > 0:
-                doc.custom_payment_status = "Partially Paid"
-            else:
-                doc.custom_payment_status = "Pending"
 
-# Test function for debugging
-@frappe.whitelist()
-def test_payment_collection():
-    """
-    Test function to verify payment collection setup
-    """
-    try:
-        # Check if required doctypes exist
-        required_doctypes = ["Sales Order", "Payment Entry", "Mode of Payment", "Account"]
-        missing_doctypes = []
-        
-        for dt in required_doctypes:
-            if not frappe.db.exists("DocType", dt):
-                missing_doctypes.append(dt)
-        
-        if missing_doctypes:
-            return {"status": "error", "message": f"Missing DocTypes: {', '.join(missing_doctypes)}"}
-        
-        # Check if custom fields exist
-        custom_fields = [
-            "Sales Order-custom_advance_payment_amount",
-            "Sales Order-custom_mode_of_payment",
-            "Sales Order-custom_payment_account",
-            "Sales Order-custom_outstanding_amount",
-            "Sales Order-custom_payment_status"
-        ]
-        
-        missing_fields = []
-        for field in custom_fields:
-            if not frappe.db.exists("Custom Field", field):
-                missing_fields.append(field)
-        
-        if missing_fields:
-            return {"status": "warning", "message": f"Missing custom fields: {', '.join(missing_fields)}"}
-        
-        return {"status": "success", "message": "Payment collection setup is complete and ready to use!"}
-        
-    except Exception as e:
-        return {"status": "error", "message": f"Error during test: {str(e)}"}
+def sales_order_on_update_after_submit(doc, method):
+    calculate_outstanding_amount(doc)

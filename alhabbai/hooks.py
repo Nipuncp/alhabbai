@@ -58,10 +58,15 @@ doctype_js = {
 
 doc_events = {
     "Sales Order": {
+        "on_submit": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_on_submit",
         "before_save": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_before_save",
-        "on_update_after_submit": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_on_update_after_submit"
+        "on_update_after_submit": "alhabbai.alhabbai.doctype.sales_order.sales_order.sales_order_on_update_after_submit",
     }
 }
+
+app_include_js = [
+    "/assets/alhabbai/js/sales_order_payment_status.js"
+]
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
