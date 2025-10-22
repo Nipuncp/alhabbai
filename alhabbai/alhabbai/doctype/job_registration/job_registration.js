@@ -177,7 +177,7 @@ frappe.ui.form.on("Job Registration", {
 
 function set_custom_candidate_query(frm) {
     frm.set_query("custom_candidate", function () {
-        return { filters: { customer: frm.doc.customer, docstatus: 1 } };
+        return { filters: { customer: frm.doc.customer, docstatus: 0 } };
     });
 }
 
